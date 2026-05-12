@@ -1,0 +1,27 @@
+{
+  "name": "AeroPlan — DJI Mission Planner",
+  "short_name": "AeroPlan",
+  "description": "Planificador de misiones fotogramétricas para drones DJI. Exporta KMZ para DJI Fly.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#070911",
+  "theme_color": "#00e5ff",
+  "lang": "es",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

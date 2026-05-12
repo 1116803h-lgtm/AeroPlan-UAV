@@ -1,0 +1,3641 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>AeroPlan — DJI Mission Planner</title>
+
+<!-- ── PWA ── -->
+<link rel="manifest" href="manifest.json"/>
+<meta name="theme-color" content="#00e5ff"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="AeroPlan"/>
+<link rel="apple-touch-icon" href="icons/icon-192.png"/>
+
+<!-- ── SEO / Share ── -->
+<meta name="description" content="Planificador de misiones fotogramétricas para DJI Air 3S, Air 3, Mini 4 Pro, Mavic 4 Pro y más. Exporta KMZ compatible con DJI Fly."/>
+<meta property="og:title" content="AeroPlan — DJI Mission Planner"/>
+<meta property="og:description" content="Diseña misiones fotogramétricas y exporta KMZ para DJI Fly sin API Key."/>
+<meta property="og:type" content="website"/>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Barlow:wght@300;400;500;600;700;800&family=Barlow+Condensed:wght@500;700;900&display=swap');
+
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07090d; --bg2:#0c0f15; --bg3:#111621; --bg4:#171d2e;
+  --border:#1c2438; --border2:#243050;
+  --text:#c8d8f0; --text2:#6880a8; --text3:#2d3d5c;
+  --acc:#00e5ff; --acc2:#00b8cc; --acc-dim:rgba(0,229,255,0.08);
+  --warn:#ffb800; --ok:#22c55e; --err:#f43f5e;
+  --mono:'Space Mono',monospace; --sans:'Barlow',sans-serif; --cond:'Barlow Condensed',sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);overflow:hidden}
+
+/* ─── LAYOUT ─── */
+.app{display:flex;height:100vh;width:100vw}
+
+/* ─── SIDEBAR: altura fija, scroll interno ─── */
+.sidebar{
+  width:350px;flex-shrink:0;
+  background:var(--bg2);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  height:100vh;          /* ocupa toda la ventana */
+  overflow:hidden;       /* el header no scrollea */
+  z-index:10;
+  position:relative;
+  isolation:isolate;
+}
+.sidebar-body{
+  flex:1;                /* toma el espacio restante tras el header */
+  overflow-y:scroll;     /* SIEMPRE muestra la barra de scroll */
+  overflow-x:hidden;
+  padding:14px 16px 20px;
+  display:flex;flex-direction:column;gap:12px;
+}
+
+/* ── FRANJA DE ESTADÍSTICAS FIJA ── */
+.stats-bar{
+  flex-shrink:0;
+  background:var(--bg3);
+  border-bottom:1px solid var(--border);
+  padding:8px 12px;
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr;
+  gap:4px 6px;
+}
+.sb-stat{
+  background:var(--bg4);
+  border:1px solid var(--border);
+  border-radius:5px;
+  padding:5px 7px;
+  display:flex;flex-direction:column;gap:1px;
+  min-width:0;
+}
+.sb-lbl{
+  font-family:var(--mono);font-size:7.5px;
+  color:var(--text3);text-transform:uppercase;
+  letter-spacing:.1em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sb-val{
+  font-family:var(--mono);font-size:13px;font-weight:700;
+  color:var(--acc);line-height:1.1;
+}
+.sb-val.warn{color:var(--warn)}
+.sb-val.ok{color:var(--ok)}
+.sb-val.err{color:var(--err)}
+.sb-unit{font-family:var(--mono);font-size:8px;color:var(--text2);font-weight:400}
+/* scrollbar siempre visible y discreta */
+.sidebar-body::-webkit-scrollbar{width:5px}
+.sidebar-body::-webkit-scrollbar-track{background:var(--bg3)}
+.sidebar-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.sidebar-body::-webkit-scrollbar-thumb:hover{background:var(--acc2)}
+/* Firefox */
+.sidebar-body{scrollbar-width:thin;scrollbar-color:var(--border2) var(--bg3)}
+
+.map-area{flex:1;position:relative;overflow:hidden}
+
+/* ─── HEADER ─── */
+.hdr{padding:14px 18px 11px;border-bottom:1px solid var(--border);background:var(--bg2);flex-shrink:0}
+.hdr-brand{display:flex;align-items:center;gap:10px}
+.hdr-icon{width:26px;height:26px;background:var(--acc);border-radius:4px;display:flex;align-items:center;justify-content:center}
+.hdr-icon svg{width:15px;height:15px;fill:none;stroke:#000;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
+.hdr-name{font-family:var(--cond);font-size:17px;font-weight:900;letter-spacing:.08em;color:#fff;text-transform:uppercase}
+.hdr-sub{font-family:var(--mono);font-size:8px;color:var(--text3);letter-spacing:.15em;text-transform:uppercase;margin-top:1px}
+
+/* ─── SECTIONS ─── */
+.sec{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:visible;flex-shrink:0;position:relative}
+.sec-hdr{padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);background:var(--bg4);cursor:pointer;user-select:none;border-radius:8px 8px 0 0}
+.sec-hdr:hover .sec-title{color:var(--text)}
+.sec-dot{width:6px;height:6px;border-radius:50%;background:var(--acc);flex-shrink:0}
+.sec-title{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.14em;color:var(--text2);text-transform:uppercase;flex:1}
+.sec-badge{font-family:var(--mono);font-size:9px;background:var(--acc-dim);border:1px solid rgba(0,229,255,.2);border-radius:3px;padding:1px 6px;color:var(--acc)}
+.sec-arrow{font-size:10px;color:var(--text3);transition:transform .2s}
+.sec-arrow.open{transform:rotate(90deg)}
+.sec-body{padding:12px;display:flex;flex-direction:column;gap:8px;border-radius:0 0 8px 8px}
+.sec-body.collapsed{display:none}
+
+/* ─── FIELDS ─── */
+.f{display:flex;flex-direction:column;gap:3px}
+.f label{font-family:var(--mono);font-size:9px;color:var(--text2);letter-spacing:.1em;text-transform:uppercase}
+.f input,.f select,.f textarea{
+  width:100%;padding:7px 10px;
+  background:var(--bg);border:1px solid var(--border2);border-radius:5px;
+  font-size:12px;color:var(--text);font-family:var(--mono);
+  transition:border-color .15s,box-shadow .15s;resize:vertical
+}
+.f input:focus,.f select:focus,.f textarea:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-dim)}
+.f select option{background:var(--bg3)}
+.f-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.f-row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.unit-wrap{position:relative;display:flex;align-items:center}
+.unit-wrap input{padding-right:34px;padding-left:6px;flex:1;min-width:0}
+.unit-tag{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:9px;color:var(--text3);pointer-events:none}
+
+/* Ocultar flechas nativas — Safari/Chrome/Firefox */
+.unit-wrap input[type=number]::-webkit-outer-spin-button,
+.unit-wrap input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.unit-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
+
+/* Stepper propio: botones − + al lado del input */
+.num-wrap{display:flex;align-items:center;gap:3px;width:100%}
+.num-wrap input{flex:1;min-width:0;text-align:center;padding:6px 4px}
+.num-wrap input[type=number]::-webkit-outer-spin-button,
+.num-wrap input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.num-wrap input[type=number]{-moz-appearance:textfield;appearance:textfield}
+.num-btn{width:26px;height:28px;flex-shrink:0;
+  background:var(--bg4);border:1px solid var(--border2);border-radius:4px;
+  color:var(--text);font-size:14px;font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;
+  user-select:none;transition:background .1s,border-color .1s;line-height:1}
+.num-btn:hover{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
+.num-btn:active{background:var(--acc);color:#000}
+.num-unit{font-family:var(--mono);font-size:9px;color:var(--text3);
+  white-space:nowrap;padding:0 3px;flex-shrink:0}
+
+/* ─── ÁNGULO MANUAL ─── */
+#flight_angle_slider{
+  width:100%;height:4px;border-radius:2px;
+  background:var(--border2);accent-color:var(--acc);cursor:pointer;
+  -webkit-appearance:none;appearance:none;outline:none
+}
+#flight_angle_slider::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;
+  border-radius:50%;background:var(--acc);cursor:pointer;
+  border:2px solid #000;box-shadow:0 0 4px rgba(0,229,255,.4)
+}
+#angleCanvas{border-radius:50%;background:var(--bg4);border:1px solid var(--border2);display:block}
+
+/* ─── STATS ─── */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stat{background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:7px 9px}
+.stat-lbl{font-family:var(--mono);font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px}
+.stat-val{font-family:var(--mono);font-size:14px;font-weight:700;color:var(--acc)}
+.stat-val.warn{color:var(--warn)}.stat-val.ok{color:var(--ok)}.stat-val.err{color:var(--err)}
+.stat-unit{font-size:9px;font-weight:400;color:var(--text2)}
+
+/* ─── BUTTONS ─── */
+.btn-row{display:flex;gap:7px;flex-wrap:wrap}
+.btn{padding:7px 13px;border:none;border-radius:5px;font-family:var(--sans);font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap;position:relative;z-index:1}
+.btn-prim{background:var(--acc);color:#000}.btn-prim:hover{background:var(--acc2)}
+.btn-prim:disabled{opacity:.3;cursor:not-allowed}
+.btn-sec{background:var(--bg4);color:var(--text2);border:1px solid var(--border2)}
+.btn-sec:hover{border-color:var(--acc);color:var(--text)}
+.btn-danger{background:transparent;color:var(--err);border:1px solid rgba(244,63,94,.25)}
+.btn-danger:hover{background:rgba(244,63,94,.08)}
+.btn-full{width:100%;justify-content:center}
+.btn-lg{padding:11px 18px;font-size:13px;font-weight:700}
+
+/* ─── NOTE / WARN ─── */
+.note{background:rgba(255,184,0,.06);border:1px solid rgba(255,184,0,.2);border-radius:5px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:rgba(255,184,0,.85);line-height:1.7}
+.info{background:var(--acc-dim);border:1px solid rgba(0,229,255,.15);border-radius:5px;padding:8px 10px;font-family:var(--mono);font-size:9px;color:var(--text2);line-height:1.7}
+
+/* ─── TOGGLE ─── */
+.toggle-row{display:flex;align-items:center;justify-content:space-between}
+.toggle-lbl{font-family:var(--mono);font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.1em}
+.toggle{position:relative;width:32px;height:18px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0;position:absolute}
+.tslider{position:absolute;inset:0;background:var(--bg4);border:1px solid var(--border2);border-radius:9px;cursor:pointer;transition:.2s}
+.tslider:before{content:'';position:absolute;height:12px;width:12px;left:2px;top:2px;background:var(--text3);border-radius:50%;transition:.2s}
+.toggle input:checked+.tslider{background:var(--acc-dim);border-color:var(--acc)}
+.toggle input:checked+.tslider:before{transform:translateX(14px);background:var(--acc)}
+
+/* ─── MAP CONTROLS ─── */
+/* Leaflet tiles/panes usan z-index 200–400; controles propios deben estar sobre eso */
+.map-toolbar{position:absolute;top:14px;left:14px;z-index:1050;display:flex;flex-direction:column;gap:6px}
+.map-btn{width:36px;height:36px;background:rgba(12,15,21,.9);border:1px solid var(--border);border-radius:6px;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:13px;backdrop-filter:blur(4px)}
+.map-btn:hover{border-color:var(--acc);color:var(--acc)}
+.map-btn.act{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
+.status-bar{position:absolute;top:14px;right:14px;z-index:1050;background:rgba(7,9,13,.88);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-family:var(--mono);font-size:10px;color:var(--text2);backdrop-filter:blur(8px);display:flex;align-items:center;gap:8px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--text3)}
+.status-dot.drawing{background:var(--warn);animation:pulse .8s ease-in-out infinite alternate}
+.status-dot.ready{background:var(--ok)}
+@keyframes pulse{from{opacity:.3}to{opacity:1}}
+.map-info{position:absolute;bottom:14px;left:14px;z-index:1050;background:rgba(7,9,13,.85);border:1px solid var(--border);border-radius:6px;padding:8px 12px;backdrop-filter:blur(8px);font-family:var(--mono);font-size:9px;color:var(--text2)}
+.map-info span{color:var(--acc)}
+
+/* ─── MAP / CANVAS ─── */
+#map{width:100%;height:100%;background:#07090d}
+#leafletMap{width:100%;height:100%;display:none;background:#07090d}
+#demoCanvas{position:absolute;inset:0;width:100%;height:100%}
+
+/* Leaflet overrides para tema oscuro */
+.leaflet-control-attribution{background:rgba(7,9,13,.7)!important;color:var(--text3)!important;font-size:8px!important}
+.leaflet-control-attribution a{color:var(--text2)!important}
+.leaflet-bar a{background:rgba(12,15,21,.92)!important;color:var(--text)!important;border-color:var(--border)!important}
+.leaflet-bar a:hover{background:var(--bg4)!important;color:var(--acc)!important}
+.leaflet-popup-content-wrapper{background:var(--bg2)!important;color:var(--text)!important;border:1px solid var(--border2)!important;border-radius:6px!important}
+.leaflet-popup-tip{background:var(--bg2)!important}
+
+/* ─── API OVERLAY ─── */
+.api-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);z-index:1100;gap:14px;padding:40px;text-align:center}
+.api-overlay.hidden{display:none}
+.api-icon{font-size:44px}
+.api-title{font-family:var(--cond);font-size:22px;font-weight:900;color:#fff;text-transform:uppercase;letter-spacing:.05em}
+.api-desc{font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.9;max-width:460px}
+.api-input-wrap{display:flex;gap:8px;width:100%;max-width:460px}
+.api-input{flex:1;padding:10px 14px;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;font-size:12px;color:var(--text);font-family:var(--mono)}
+.api-input:focus{outline:none;border-color:var(--acc)}
+.demo-btn{font-family:var(--mono);font-size:10px;color:var(--text2);background:none;border:none;cursor:pointer;text-decoration:underline}
+.demo-btn:hover{color:var(--acc)}
+
+/* ─── MODAL COORDENADAS ─── */
+/* Leaflet usa z-index hasta ~1000; los modales deben estar por encima */
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:2000;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-backdrop.hidden{display:none}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:10px;width:520px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.modal-title{font-family:var(--cond);font-size:15px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;flex:1}
+.modal-close{width:28px;height:28px;border:none;background:var(--bg4);border-radius:4px;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px}
+.modal-close:hover{background:rgba(244,63,94,.15);color:var(--err)}
+.modal-body{padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.modal-footer{padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end}
+
+/* tabla de puntos en el modal */
+.pts-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+.pts-table th{background:var(--bg4);padding:5px 8px;text-align:left;color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid var(--border)}
+.pts-table td{padding:4px 5px;border-bottom:1px solid var(--border)}
+.pts-table td input{width:100%;padding:4px 6px;background:var(--bg);border:1px solid var(--border2);border-radius:3px;font-size:11px;color:var(--text);font-family:var(--mono)}
+.pts-table td input:focus{outline:none;border-color:var(--acc)}
+.pts-table .del-btn{width:22px;height:22px;border:none;background:transparent;color:var(--text3);cursor:pointer;border-radius:3px;font-size:12px}
+.pts-table .del-btn:hover{background:rgba(244,63,94,.12);color:var(--err)}
+.pt-badge{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:var(--acc);color:#000;font-size:8px;font-weight:700}
+
+/* ─── DEMO CANVAS LEGEND ─── */
+.canvas-legend{position:absolute;bottom:14px;right:14px;z-index:1050;background:rgba(7,9,13,.88);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-family:var(--mono);font-size:9px;color:var(--text2);backdrop-filter:blur(8px);display:flex;flex-direction:column;gap:6px}
+.leg-item{display:flex;align-items:center;gap:8px}
+.leg-line{width:22px;height:2px;border-radius:1px}
+
+/* ─── MODE TABS ─── */
+.mode-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.mode-tab{padding:8px 6px;border:1px solid var(--border2);border-radius:5px;background:var(--bg4);
+  color:var(--text2);font-family:var(--sans);font-size:11px;font-weight:600;cursor:pointer;
+  transition:all .15s;text-align:center;line-height:1.3}
+.mode-tab:hover{border-color:var(--acc);color:var(--text)}
+.mode-tab.act{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
+.mode-desc{font-family:var(--mono);font-size:9px;color:var(--text2);line-height:1.7;
+  background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:7px 9px}
+.mode-warn{color:var(--err);font-weight:700}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ════════════ SIDEBAR ════════════ -->
+<div class="sidebar">
+  <div class="hdr">
+    <div class="hdr-brand">
+      <div class="hdr-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      </div>
+      <div>
+        <div class="hdr-name">AeroPlan</div>
+        <div class="hdr-sub">DJI Air 3S · Fotogrametría · v2</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── ESTADÍSTICAS FIJAS ── -->
+  <div class="stats-bar">
+    <div class="sb-stat"><div class="sb-lbl">GSD</div><div class="sb-val" id="st_gsd">—</div><div class="sb-unit">cm/px</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Área</div><div class="sb-val" id="st_area">—</div><div class="sb-unit">ha</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Waypoints</div><div class="sb-val" id="st_wps">—</div><div class="sb-unit">puntos</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Distancia</div><div class="sb-val" id="st_dist">—</div><div class="sb-unit">km</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Fotos est.</div><div class="sb-val" id="st_fotos">—</div><div class="sb-unit">imgs</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Tiempo est.</div><div class="sb-val" id="st_tiempo">—</div><div class="sb-unit">min</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Sep. pasadas</div><div class="sb-val" id="st_sep">—</div><div class="sb-unit">m</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Intervalo foto</div><div class="sb-val" id="st_interval">—</div><div class="sb-unit">s</div></div>
+    <div class="sb-stat"><div class="sb-lbl">Pasadas</div><div class="sb-val" id="st_pasadas">—</div><div class="sb-unit">líneas</div></div>
+  </div><!-- /stats-bar -->
+  <div class="sidebar-body" id="sidebarBody">
+
+    <!-- ── POLÍGONO ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot" style="background:var(--warn)"></div>
+        <div class="sec-title">Polígono de vuelo</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <button class="btn btn-prim" id="btnDraw" onclick="startDraw()" style="justify-content:center">✏️ Trazar</button>
+          <button class="btn btn-sec" onclick="openCoordsModal()" style="justify-content:center">📋 Coordenadas</button>
+          <button class="btn btn-sec" onclick="openImportModal()" style="justify-content:center">📂 Importar</button>
+          <button class="btn btn-sec" onclick="undoLast()" style="justify-content:center">↩ Deshacer</button>
+          <button class="btn btn-danger" onclick="clearPoly()" style="justify-content:center;grid-column:span 2">🗑 Limpiar</button>
+        </div>
+        <div class="info">
+          <strong>Trazar:</strong> clic en mapa para colocar vértices.<br>
+          <strong>Coordenadas:</strong> ingresa lat/lon manualmente.<br>
+          <strong>Importar:</strong> carga un archivo KML, KMZ o GeoJSON.
+        </div>
+        <div style="height:1px;background:var(--border);margin:2px 0"></div>
+        <div class="f"><label>Offset de polígono</label>
+          <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:6px;align-items:center">
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('poly_offset',-1)" tabindex="-1">−</button><input type="number" id="poly_offset" value="0" min="-100" max="200" step="5"
+                oninput="onOffsetChange()"/><button class="num-btn" type="button" onclick="step('poly_offset',1)" tabindex="-1">+</button><span class="num-unit">m</span></div>
+            <button class="btn btn-sec" onclick="setOffset(10)" style="padding:6px 10px;font-size:11px">+10</button>
+            <button class="btn btn-sec" onclick="setOffset(20)" style="padding:6px 10px;font-size:11px">+20</button>
+            <button class="btn btn-sec" onclick="resetOffset()" style="padding:6px 9px">↺</button>
+          </div>
+        </div>
+        <div class="info" id="offsetInfo" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- ── MISIÓN ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot"></div>
+        <div class="sec-title">Misión</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+        <div class="f"><label>Nombre</label><input type="text" id="mision_nombre" value="Levantamiento_01"/></div>
+
+        <!-- SELECTOR DE MODO -->
+        <div class="f"><label>Modo de misión</label>
+          <div class="mode-tabs" id="modeTabs" style="grid-template-columns:1fr 1fr 1fr">
+            <button class="mode-tab act" id="modeTabA" onclick="setMisionMode('A')">
+              📸 Foto por WP
+            </button>
+            <button class="mode-tab" id="modeTabB" onclick="setMisionMode('B')">
+              🛣 Ruta + intervalo
+            </button>
+            <button class="mode-tab" id="modeTabC" onclick="setMisionMode('C')">
+              🔁 Perimetral
+            </button>
+          </div>
+        </div>
+        <div class="mode-desc" id="modeDescA">
+          Genera un waypoint por cada foto. Control exacto de traslapes.<br>
+          <span class="mode-warn" id="wpsWarn" style="display:none">⚠ &gt;199 WP — puede crashear RC2</span>
+        </div>
+
+        <!-- Panel Modo A: opción detener + takePhoto -->
+        <div id="modeAPanel" style="display:none;flex-direction:column;gap:8px;margin-top:2px">
+          <div style="height:1px;background:var(--border);margin:2px 0"></div>
+          <div class="toggle-row">
+            <div>
+              <div style="font-family:var(--mono);font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;font-weight:700">
+                📷 Detener + Foto en cada WP
+              </div>
+              <div style="font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:3px;line-height:1.5">
+                Incluye <code style="color:var(--acc)">takePhoto</code> y <code style="color:var(--acc)">toPointAndStop</code> en el KMZ
+              </div>
+            </div>
+            <label class="toggle" style="margin-left:12px;flex-shrink:0">
+              <input type="checkbox" id="stop_and_shoot">
+              <span class="tslider"></span>
+            </label>
+          </div>
+          <div id="stopShootNote" class="note" style="display:none;font-size:8.5px;line-height:1.7">
+            ⚠ <strong>Experimental en Air 3S + DJI Fly.</strong><br>
+            El drone <strong>sí se detiene</strong> en cada WP (confirmado).<br>
+            La acción <code>takePhoto</code> <strong>puede o no ejecutarse</strong> según firmware.<br>
+            Prueba primero con un polígono pequeño de 10–15 WP.<br>
+            <span style="color:var(--ok)">✓ Garantizado en drones Enterprise con DJI Pilot 2.</span>
+          </div>
+        </div>
+        <div class="mode-desc" id="modeDescB" style="display:none">
+          Solo waypoints en extremos de pasadas. Disparo manual por intervalo de tiempo en DJI Fly.<br>
+          <span style="color:var(--ok)">✓ Recomendado para Air 3S</span>
+        </div>
+        <div class="mode-desc" id="modeDescC" style="display:none">
+          Vuelo siguiendo el borde del polígono (con offset si está configurado).<br>
+          <span style="color:var(--ok)">✓ Ideal para inspección de bordes</span>
+        </div>
+
+        <!-- Panel perimetral — solo visible en modo C -->
+        <div id="perimPanel" style="display:none;flex-direction:column;gap:8px">
+          <div style="height:1px;background:var(--border);margin:2px 0"></div>
+          <div class="info" style="font-size:9px;line-height:1.6">
+            Genera <strong id="perimWpCount">—</strong> WPs siguiendo el borde del polígono.<br>
+            Usa el <strong>offset</strong> configurado en "Polígono de vuelo" para expandir o contraer el perímetro.
+          </div>
+        </div>
+
+        <div class="f-row" id="flightDirRow">
+          <div class="f"><label>Dirección pasadas</label>
+            <select id="flight_dir" onchange="onFlightDirChange()">
+              <option value="auto">Auto (área)</option>
+              <option value="ns">Norte–Sur</option>
+              <option value="ew">Este–Oeste</option>
+              <option value="manual">Manual (ángulo libre)</option>
+            </select>
+          </div>
+          <div class="f" style="justify-content:flex-end">
+            <label>Doble grilla</label>
+            <div class="toggle-row" style="margin-top:6px">
+              <span class="toggle-lbl">OFF / ON</span>
+              <label class="toggle"><input type="checkbox" id="double_grid"><span class="tslider"></span></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel ángulo manual — visible solo cuando dir=manual -->
+        <div id="manualAnglePanel" style="display:none;flex-direction:column;gap:8px">
+          <div style="height:1px;background:var(--border);margin:2px 0"></div>
+          <div class="f-row" style="align-items:center;gap:8px">
+            <div class="f">
+              <label>Ángulo de pasadas</label>
+              <div class="num-wrap">
+                <button class="num-btn" type="button" onclick="stepAngle(-1)" tabindex="-1">−</button>
+                <input type="number" id="flight_angle" value="0" min="0" max="179" step="1"
+                  oninput="onAngleInput()" style="text-align:center"/>
+                <button class="num-btn" type="button" onclick="stepAngle(1)" tabindex="-1">+</button>
+                <span class="num-unit">°</span>
+              </div>
+            </div>
+            <div class="f" style="align-items:center;justify-content:center">
+              <!-- Indicador visual del ángulo -->
+              <canvas id="angleCanvas" width="54" height="54"
+                style="cursor:pointer;margin-top:14px"
+                onmousedown="startAngleDrag(event)"
+                ontouchstart="startAngleDrag(event)"></canvas>
+            </div>
+          </div>
+          <input type="range" id="flight_angle_slider" min="0" max="179" step="1" value="0"
+            oninput="onAngleSlider()"
+            style="width:100%;accent-color:var(--acc);cursor:pointer"/>
+          <div class="info" style="font-size:8.5px;line-height:1.6">
+            0° = Este–Oeste · 90° = Norte–Sur · Arrastra el indicador o usa el slider.<br>
+            <span id="angleNote" style="color:var(--acc)">Doble grilla añadirá pasadas a <span id="angleNote2">90</span>°.</span>
+          </div>
+        </div>
+
+        <!-- Subdivisión de tramos + punto de vuelta — solo visible en modo B -->
+        <div id="subdivPanel" style="display:none;flex-direction:column;gap:8px">
+          <div style="height:1px;background:var(--border);margin:2px 0"></div>
+
+          <!-- Subdivisión -->
+          <div class="f-row">
+            <div class="f"><label>Subdivisión tramos</label>
+              <div class="num-wrap"><button class="num-btn" type="button" onclick="step('max_seg_dist',-1)" tabindex="-1">−</button><input type="number" id="max_seg_dist" value="50" min="10" max="500" step="10" oninput="onSubdivChange()"/><button class="num-btn" type="button" onclick="step('max_seg_dist',1)" tabindex="-1">+</button><span class="num-unit">m</span></div>
+            </div>
+            <div class="f" style="justify-content:flex-end">
+              <label>Activar</label>
+              <div class="toggle-row" style="margin-top:6px">
+                <span class="toggle-lbl">OFF / ON</span>
+                <label class="toggle"><input type="checkbox" id="subdiv_on" checked onchange="onSubdivChange()"><span class="tslider"></span></label>
+              </div>
+            </div>
+          </div>
+          <div class="info" style="font-size:9px;line-height:1.6" id="subdivInfo">
+            DJI Fly curva la trayectoria entre waypoints distantes. Subdividir tramos cada <span id="subdivDistLabel">50</span> m mantiene la ruta prácticamente recta y conserva el traslape.
+          </div>
+
+          <!-- Punto de vuelta — solo visible en Modo B, no en perimetral -->
+          <div id="turnMidpointPanel">
+            <div class="toggle-row">
+              <div>
+                <div style="font-family:var(--mono);font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.1em">Punto de vuelta</div>
+                <div style="font-family:var(--mono);font-size:8px;color:var(--text3);margin-top:2px">Reemplaza los 2 extremos de cada giro por 1 punto central</div>
+              </div>
+              <label class="toggle"><input type="checkbox" id="turn_midpoint" onchange="onSubdivChange()"><span class="tslider"></span></label>
+            </div>
+            <div class="info" style="font-size:9px;line-height:1.6" id="turnMidpointInfo" style="display:none">
+              ● <strong>Cian grande</strong> = extremo de pasada &nbsp;|&nbsp; ● <strong>Naranja</strong> = punto de vuelta &nbsp;|&nbsp; ● <strong>Ámbar pequeño</strong> = subdivisión
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ── SENSOR ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot"></div>
+        <div class="sec-title">Drone / Sensor / Cámara</div>
+        <div class="sec-badge" id="sensorBadge">Air 3S</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+
+        <!-- Selector de perfil de dron -->
+        <div class="f">
+          <label>Perfil de dron y cámara</label>
+          <select id="camara" onchange="onCameraChange()" style="font-size:11px">
+            <optgroup label="── DJI Air 3S ──">
+              <option value="air3s_wide_12mp" selected>Air 3S · Gran Angular 24mm · 12MP</option>
+              <option value="air3s_wide_50mp">Air 3S · Gran Angular 24mm · 50MP ★</option>
+              <option value="air3s_tele_12mp">Air 3S · Tele 70mm · 12MP</option>
+              <option value="air3s_tele_48mp">Air 3S · Tele 70mm · 48MP ★</option>
+            </optgroup>
+            <optgroup label="── DJI Air 3 ──">
+              <option value="air3_wide_12mp">Air 3 · Gran Angular 24mm · 12MP</option>
+              <option value="air3_wide_48mp">Air 3 · Gran Angular 24mm · 48MP ★</option>
+              <option value="air3_tele_12mp">Air 3 · Tele 70mm · 12MP</option>
+              <option value="air3_tele_48mp">Air 3 · Tele 70mm · 48MP ★</option>
+            </optgroup>
+            <optgroup label="── DJI Mini 4 Pro ──">
+              <option value="mini4pro_12mp">Mini 4 Pro · 24mm · 12MP</option>
+              <option value="mini4pro_48mp">Mini 4 Pro · 24mm · 48MP ★</option>
+            </optgroup>
+            <optgroup label="── DJI Mini 3 Pro ──">
+              <option value="mini3pro_12mp">Mini 3 Pro · 24mm · 12MP</option>
+              <option value="mini3pro_48mp">Mini 3 Pro · 24mm · 48MP ★</option>
+            </optgroup>
+            <optgroup label="── DJI Mavic 3 Pro ──">
+              <option value="m3pro_wide_20mp">Mavic 3 Pro · Hasselblad 24mm · 20MP</option>
+              <option value="am3pro_tele70_12mp">Mavic 3 Pro · Tele 70mm · 12MP</option>
+              <option value="am3pro_tele70_48mp">Mavic 3 Pro · Tele 70mm · 48MP ★</option>
+            </optgroup>
+            <optgroup label="── DJI Mavic 4 Pro ──">
+              <option value="m4pro_wide_25mp">Mavic 4 Pro · Hasselblad 28mm · 25MP</option>
+              <option value="m4pro_wide_100mp">Mavic 4 Pro · Hasselblad 28mm · 100MP ★</option>
+              <option value="m4pro_tele70_48mp">Mavic 4 Pro · Tele 70mm · 48MP ★</option>
+              <option value="m4pro_tele168_50mp">Mavic 4 Pro · Tele 168mm · 50MP ★</option>
+            </optgroup>
+            <optgroup label="── Otro ──">
+              <option value="custom">⚙ Manual — ingresar parámetros</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- Chip informativo del perfil cargado -->
+        <div id="cameraInfoChip" style="
+          background:var(--bg);border:1px solid var(--border2);border-radius:5px;
+          padding:7px 10px;font-family:var(--mono);font-size:9px;line-height:1.8;color:var(--text2)">
+          <span id="ciDrone" style="color:var(--acc);font-weight:700"></span><br>
+          <span id="ciCamera"></span><br>
+          <span id="ciNote" style="color:var(--text3)"></span>
+        </div>
+
+        <!-- Intervalo mínimo sugerido -->
+        <div id="intervalWarning" class="note" style="display:none;font-size:8.5px;line-height:1.6"></div>
+
+        <!-- Campos editables del sensor -->
+        <div style="height:1px;background:var(--border);margin:2px 0"></div>
+        <div style="font-family:var(--mono);font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-bottom:2px">Parámetros de sensor (editables)</div>
+        <div class="f-row3">
+          <div class="f"><label>Focal real (mm)</label><input type="number" id="f_mm" value="9.97" step="0.01" oninput="onSensorManualEdit()"/></div>
+          <div class="f"><label>Sensor W (mm)</label><input type="number" id="sw_mm" value="13.2" step="0.01" oninput="onSensorManualEdit()"/></div>
+          <div class="f"><label>Sensor H (mm)</label><input type="number" id="sh_mm" value="8.8" step="0.01" oninput="onSensorManualEdit()"/></div>
+        </div>
+        <div class="f-row">
+          <div class="f"><label>Resolución W (px)</label><input type="number" id="res_w" value="4096" oninput="onSensorManualEdit()"/></div>
+          <div class="f"><label>Resolución H (px)</label><input type="number" id="res_h" value="3072" oninput="onSensorManualEdit()"/></div>
+        </div>
+        <div class="f-row">
+          <div class="f"><label>Megapíxeles</label>
+            <input type="text" id="mp_display" readonly style="color:var(--acc)"/>
+          </div>
+          <div class="f"><label>Intervalo mín. (s)</label>
+            <div class="unit-wrap">
+              <input type="number" id="min_interval" value="2" min="1" max="30" step="1" oninput="onSensorManualEdit()"/>
+              <span class="unit-tag">s</span>
+            </div>
+          </div>
+        </div>
+        <div class="info" style="font-size:8.5px;line-height:1.65">
+          ★ = modo alta resolución (Quad-Bayer). Ajusta el intervalo en el campo de captura Modo B.<br>
+          <strong>Focal real</strong> ≠ equiv. 35mm. Se usa directamente para calcular GSD.<br>
+          Ejemplo: Air 3S 24mm equiv → focal real ≈ <strong>9.97 mm</strong>.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VUELO ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot"></div>
+        <div class="sec-title">Parámetros de Vuelo</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+        <div class="f-row">
+          <div class="f"><label>Altura AGL</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('altura',-1)" tabindex="-1">−</button><input type="number" id="altura" value="80" min="20" max="400" step="5"/><button class="num-btn" type="button" onclick="step('altura',1)" tabindex="-1">+</button><span class="num-unit">m</span></div>
+          </div>
+          <div class="f"><label>Velocidad</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('velocidad',-1)" tabindex="-1">−</button><input type="number" id="velocidad" value="5" min="1" max="15" step="0.5"/><button class="num-btn" type="button" onclick="step('velocidad',1)" tabindex="-1">+</button><span class="num-unit">m/s</span></div>
+          </div>
+        </div>
+        <div class="f-row">
+          <div class="f"><label>Traslape frontal</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('overlap_f',-1)" tabindex="-1">−</button><input type="number" id="overlap_f" value="80" min="50" max="95" step="5"/><button class="num-btn" type="button" onclick="step('overlap_f',1)" tabindex="-1">+</button><span class="num-unit">%</span></div>
+          </div>
+          <div class="f"><label>Traslape lateral</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('overlap_l',-1)" tabindex="-1">−</button><input type="number" id="overlap_l" value="75" min="40" max="95" step="5"/><button class="num-btn" type="button" onclick="step('overlap_l',1)" tabindex="-1">+</button><span class="num-unit">%</span></div>
+          </div>
+        </div>
+        <div class="f-row">
+          <div class="f"><label>Seg. despegue</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('takeoff_height',-1)" tabindex="-1">−</button><input type="number" id="takeoff_height" value="30" min="20" max="100" step="5"/><button class="num-btn" type="button" onclick="step('takeoff_height',1)" tabindex="-1">+</button><span class="num-unit">m</span></div>
+          </div>
+          <div class="f"><label>Gimbal pitch</label>
+            <div class="num-wrap"><button class="num-btn" type="button" onclick="step('gimbal',-1)" tabindex="-1">−</button><input type="number" id="gimbal" value="-90" min="-90" max="-30" step="5"/><button class="num-btn" type="button" onclick="step('gimbal',1)" tabindex="-1">+</button><span class="num-unit">°</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- ── GUARDAR / CARGAR MISIÓN ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot" style="background:#a855f7"></div>
+        <div class="sec-title">Guardar / Cargar Misión</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+        <div class="btn-row">
+          <button class="btn btn-prim btn-full" onclick="saveMission()">
+            💾 Guardar .AEP
+          </button>
+          <button class="btn btn-sec btn-full" onclick="document.getElementById('aepFileInput').click()">
+            📂 Abrir .AEP
+          </button>
+        </div>
+        <input type="file" id="aepFileInput" accept=".aep" style="display:none"
+          onchange="loadMission(event)"/>
+        <div class="info" id="aepStatus" style="display:none"></div>
+        <div class="info" style="line-height:1.7">
+          Guarda toda la configuración: polígono, parámetros de vuelo, sensor, modo y offset.<br>
+          Abre el archivo <strong>.AEP</strong> para continuar trabajando donde lo dejaste.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── EXPORTAR ── -->
+    <div class="sec">
+      <div class="sec-hdr" onclick="toggleSec(this)">
+        <div class="sec-dot" style="background:var(--acc)"></div>
+        <div class="sec-title">Exportar KMZ</div>
+        <span class="sec-arrow open">▶</span>
+      </div>
+      <div class="sec-body">
+
+        <!-- Modo B: campo de intervalo + subdivisión de tramos -->
+        <div id="modeB_interval_panel" style="display:none">
+          <div class="f-row" style="margin-bottom:6px">
+            <div class="f"><label>Intervalo captura</label>
+              <div class="num-wrap"><button class="num-btn" type="button" onclick="step('intervalo_seg',-1)" tabindex="-1">−</button><input type="number" id="intervalo_seg" value="3" min="1" max="30" step="0.5" oninput="onIntervalChange()"/><button class="num-btn" type="button" onclick="step('intervalo_seg',1)" tabindex="-1">+</button><span class="num-unit">s</span></div>
+            </div>
+            <div class="f"><label>Vel. calculada</label>
+              <div class="unit-wrap"><input type="text" id="vel_calculada" readonly style="color:var(--acc)"/><span class="unit-tag">m/s</span></div>
+            </div>
+          </div>
+          <div class="info" style="margin-bottom:8px">
+            En DJI Fly: activa <strong>Timed Shot</strong> con el intervalo calculado antes de iniciar la misión.<br>
+            Vel. = distancia entre fotos ÷ intervalo (calculada con tus traslapes y sensor).
+          </div>
+        </div>
+
+        <!-- Toggle: Trayectoria recta -->
+        <div style="background:var(--bg);border:1px solid var(--border2);border-radius:6px;padding:10px 12px;margin-bottom:6px">
+          <div class="toggle-row">
+            <div>
+              <div style="font-family:var(--mono);font-size:9px;color:var(--text);text-transform:uppercase;letter-spacing:.1em;font-weight:700">
+                📐 Trayectoria recta (straight line)
+              </div>
+              <div style="font-family:var(--mono);font-size:8px;color:var(--text2);margin-top:3px;line-height:1.5">
+                Fuerza <code style="color:var(--acc)">useStraightLine=1</code> en el WPML.<br>
+                Elimina las curvas redondeadas del Air 3S en DJI Fly.
+              </div>
+            </div>
+            <label class="toggle" style="margin-left:12px;flex-shrink:0">
+              <input type="checkbox" id="straight_line" checked>
+              <span class="tslider"></span>
+            </label>
+          </div>
+          <div id="straightLineNote" class="note" style="margin-top:8px;font-size:8.5px;line-height:1.6">
+            ⚠ El preview en DJI Fly puede verse distorsionado, pero el vuelo <strong>sí vuela en línea recta</strong>. Confirmado en Air 3S con RC2.
+          </div>
+        </div>
+
+        <button class="btn btn-prim btn-full btn-lg" id="btnKMZ" onclick="exportKMZ()" disabled>
+          ⬇ Descargar KMZ — Misión
+        </button>
+        <button class="btn btn-sec btn-full" id="btnKML" onclick="exportKML()" disabled style="margin-top:6px">
+          🌐 Descargar KML — Google Earth
+        </button>
+        <div class="note" style="margin-top:8px">
+          ⚠ Altura <strong>relativa al punto de despegue</strong>.<br>
+          RC 2 → Android/data/dji.go.v5/files/waypoint → reemplaza misión dummy.
+        </div>
+      </div>
+    </div>
+
+
+  </div><!-- /sidebar-body -->
+</div><!-- /sidebar -->
+
+<!-- ════════════ MAP AREA ════════════ -->
+<div class="map-area">
+
+  <!-- API Key overlay -->
+  <div class="api-overlay" id="apiOverlay">
+    <div class="api-icon">🗺</div>
+    <div class="api-title">Selecciona el mapa base</div>
+    <div class="api-desc">
+      Elige cómo cargar el mapa. <strong style="color:var(--acc)">Mapa satelital</strong> usa tiles de Google Maps
+      directamente sin API Key. La opción Google Maps API ofrece funciones adicionales.
+    </div>
+
+    <!-- Opción 1: Leaflet + tiles Google sin API -->
+    <div style="width:100%;max-width:480px">
+      <button class="btn btn-prim btn-full btn-lg" onclick="loadLeafletMode()" style="margin-bottom:8px;font-size:13px">
+        🛰 Mapa Satelital — Sin API Key (Recomendado)
+      </button>
+      <div style="font-family:var(--mono);font-size:8.5px;color:var(--text2);text-align:center;margin-bottom:18px;line-height:1.6">
+        Tiles Google Maps vía XYZ · EPSG:3857 · Zoom + clic para trazar polígonos
+      </div>
+    </div>
+
+    <!-- Opción 2: Google Maps API Key -->
+    <div style="width:100%;max-width:480px">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">
+        O usa tu Google Maps API Key
+      </div>
+      <div class="api-input-wrap">
+        <input class="api-input" id="apiKeyInput" type="text" placeholder="AIzaSy..." autocomplete="off"/>
+        <button class="btn btn-prim" onclick="loadGoogleMaps()">Cargar</button>
+      </div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--text3);text-align:center;margin-top:4px">
+        console.cloud.google.com → Maps JavaScript API
+      </div>
+    </div>
+
+    <button class="demo-btn" onclick="loadDemoMode()" style="margin-top:10px">→ Modo demo sin mapa (canvas interactivo)</button>
+  </div>
+
+  <!-- Google Map -->
+  <div id="map"></div>
+
+  <!-- Leaflet Map (modo sin API Key) -->
+  <div id="leafletMap"></div>
+
+  <!-- Demo Canvas (modo sin API) -->
+  <canvas id="demoCanvas" style="display:none"></canvas>
+
+  <!-- Toolbar -->
+  <div class="map-toolbar">
+    <div class="map-btn" title="Zoom +" onclick="doZoom(1)">+</div>
+    <div class="map-btn" title="Zoom −" onclick="doZoom(-1)">−</div>
+    <div class="map-btn" id="btnSat" title="Activar mapa satelital / cambiar tipo" onclick="toggleMapType()">🛰</div>
+    <div class="map-btn" title="Centrar en polígono" onclick="fitPoly()">⊙</div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-bar">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusTxt">Sin polígono</span>
+  </div>
+
+  <!-- Cursor coords -->
+  <div class="map-info" id="coordsInfo" style="display:none">
+    Lat: <span id="cursorLat">—</span> &nbsp;|&nbsp; Lon: <span id="cursorLon">—</span>
+  </div>
+
+  <!-- Canvas legend -->
+  <div class="canvas-legend" id="canvasLegend" style="display:none">
+    <div class="leg-item"><div class="leg-line" style="background:#00e5ff"></div><span>Polígono</span></div>
+    <div class="leg-item"><div class="leg-line" style="background:#ffb800"></div><span>Ruta de vuelo</span></div>
+    <div class="leg-item"><div class="leg-line" style="background:#22c55e;height:1px;border-top:1px dashed #22c55e"></div><span>Pasadas</span></div>
+  </div>
+
+</div>
+</div><!-- /app -->
+
+<!-- ════════════ MODAL COORDENADAS ════════════ -->
+<div class="modal-backdrop hidden" id="coordsModal" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">📋 Ingresar Coordenadas del Polígono</div>
+      <button class="modal-close" onclick="closeCoordsModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="info">
+        Ingresa las coordenadas de cada vértice del polígono en <strong>WGS84 decimal</strong>.<br>
+        Ejemplo: Lat <span style="color:var(--acc)">19.706543</span> &nbsp; Lon <span style="color:var(--acc)">-101.194210</span>
+      </div>
+
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text2)">Vértices del polígono:</span>
+        <button class="btn btn-sec" style="font-size:11px;padding:5px 10px" onclick="addModalRow()">+ Agregar vértice</button>
+      </div>
+
+      <table class="pts-table" id="ptsTable">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Latitud (decimal)</th>
+            <th>Longitud (decimal)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ptsTbody"></tbody>
+      </table>
+
+      <div style="display:flex;gap:8px">
+        <div class="f" style="flex:1">
+          <label>O pega texto (una coordenada por línea: lat,lon)</label>
+          <textarea id="pasteArea" rows="5" placeholder="19.706543,-101.194210&#10;19.706543,-101.185000&#10;19.698000,-101.185000&#10;19.698000,-101.194210"></textarea>
+        </div>
+      </div>
+      <button class="btn btn-sec btn-full" onclick="parsePasteArea()" style="font-size:11px">↑ Importar desde texto pegado</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sec" onclick="closeCoordsModal()">Cancelar</button>
+      <button class="btn btn-prim" onclick="applyModalCoords()">✓ Aplicar polígono</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ MODAL IMPORTAR ARCHIVO ════════════ -->
+<div class="modal-backdrop hidden" id="importModal" onclick="closeImportOutside(event)">
+  <div class="modal" style="width:480px">
+    <div class="modal-hdr">
+      <div class="modal-title">📂 Importar Polígono desde Archivo</div>
+      <button class="modal-close" onclick="closeImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="info">
+        Formatos soportados: <strong>KML</strong>, <strong>KMZ</strong>, <strong>GeoJSON</strong>.<br>
+        Se extrae el primer polígono o linestring encontrado en el archivo.
+      </div>
+
+      <!-- Zona de drop -->
+      <div id="dropZone" style="
+        border:2px dashed var(--border2);border-radius:8px;
+        padding:32px 20px;text-align:center;cursor:pointer;
+        transition:border-color .2s,background .2s;
+        background:var(--bg)"
+        onclick="document.getElementById('fileInput').click()"
+        ondragover="onDragOver(event)"
+        ondragleave="onDragLeave(event)"
+        ondrop="onFileDrop(event)">
+        <div style="font-size:36px;margin-bottom:8px">📁</div>
+        <div style="font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.8">
+          Arrastra un archivo aquí<br>
+          o haz clic para seleccionar
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:8px">
+          .kml · .kmz · .geojson · .json
+        </div>
+      </div>
+      <input type="file" id="fileInput" accept=".kml,.kmz,.geojson,.json"
+        style="display:none" onchange="onFileSelected(event)"/>
+
+      <!-- Resultado de la lectura -->
+      <div id="importResult" style="display:none">
+        <div id="importResultBox" class="info" style="line-height:1.8"></div>
+      </div>
+
+      <!-- Preview de coordenadas -->
+      <div id="importPreview" style="display:none">
+        <div style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.1em">
+          Vista previa — primeros vértices:
+        </div>
+        <div id="importPreviewList" style="
+          font-family:var(--mono);font-size:10px;color:var(--text);
+          background:var(--bg);border:1px solid var(--border);border-radius:5px;
+          padding:8px 10px;max-height:140px;overflow-y:auto;line-height:1.9">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-sec" onclick="closeImportModal()">Cancelar</button>
+      <button class="btn btn-prim" id="btnApplyImport" onclick="applyImport()" disabled>✓ Aplicar polígono</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ══════════════════════════════════════════════════
+// GLOBALS
+// ══════════════════════════════════════════════════
+let gmap=null, demoMode=false;
+let leafletMap=null, leafletMode=false;
+let lPolyLayer=null, lRouteLayer=null, lMarkersLayer=null;
+let polyPoints=[];      // [{lat,lng}]
+let polyMarkers=[];
+let polyline=null, filledPoly=null, routePolylines=[];
+let drawing=false;
+let misionMode='A';    // 'A' = foto por WP, 'B' = solo ruta + intervalo
+
+// Demo canvas state
+let canvas=null, ctx=null;
+let canvasView={cx:0, cy:0, scale:1}; // center lon/lat + pixels/degree
+let isDragging=false, dragStart={x:0,y:0}, dragView={};
+
+// ══════════════════════════════════════════════════
+// BASE DE DATOS DE DRONES
+// Fuentes: specs.dji.com, DPReview, EXIF confirmado en comunidad
+// f_mm    = focal real (no equiv. 35mm)
+// sw/sh   = dimensiones físicas del sensor en mm
+// res_w/h = resolución en pixeles del modo seleccionado
+// min_interval_s = intervalo mínimo entre fotos en timed shot (segundos)
+//                  12MP ≈ 2 s típico; alta resolución ≥ 5 s
+// ══════════════════════════════════════════════════
+const DRONE_DB = {
+
+  // ─── DJI Air 3S ─────────────────────────────────────────────────────────────
+  'air3s_wide_12mp': {
+    label: 'Air 3S — Gran Angular 24mm · 12MP',
+    drone: 'DJI Air 3S', camera: 'Gran Angular (1" CMOS)', note: 'Quad-Bayer binning 4→1 px',
+    f_mm: 9.97, sw_mm: 13.2, sh_mm: 8.8, res_w: 4096, res_h: 3072,
+    mp: 12, min_interval_s: 2
+  },
+  'air3s_wide_50mp': {
+    label: 'Air 3S — Gran Angular 24mm · 50MP',
+    drone: 'DJI Air 3S', camera: 'Gran Angular (1" CMOS)', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 9.97, sw_mm: 13.2, sh_mm: 8.8, res_w: 8192, res_h: 6144,
+    mp: 50, min_interval_s: 5
+  },
+  'air3s_tele_12mp': {
+    label: 'Air 3S — Tele 70mm · 12MP',
+    drone: 'DJI Air 3S', camera: 'Tele Media (1/1.3" CMOS)', note: 'Quad-Bayer binning',
+    f_mm: 15.04, sw_mm: 9.6, sh_mm: 7.2, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'air3s_tele_48mp': {
+    label: 'Air 3S — Tele 70mm · 48MP',
+    drone: 'DJI Air 3S', camera: 'Tele Media (1/1.3" CMOS)', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 15.04, sw_mm: 9.6, sh_mm: 7.2, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+
+  // ─── DJI Air 3 ──────────────────────────────────────────────────────────────
+  'air3_wide_12mp': {
+    label: 'Air 3 — Gran Angular 24mm · 12MP',
+    drone: 'DJI Air 3', camera: 'Gran Angular (1/1.3" CMOS)', note: 'Quad-Bayer binning',
+    f_mm: 8.51, sw_mm: 9.6, sh_mm: 7.2, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'air3_wide_48mp': {
+    label: 'Air 3 — Gran Angular 24mm · 48MP',
+    drone: 'DJI Air 3', camera: 'Gran Angular (1/1.3" CMOS)', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 8.51, sw_mm: 9.6, sh_mm: 7.2, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+  'air3_tele_12mp': {
+    label: 'Air 3 — Tele 70mm · 12MP',
+    drone: 'DJI Air 3', camera: 'Tele Media (1/1.3" CMOS)', note: 'Quad-Bayer binning',
+    f_mm: 15.04, sw_mm: 9.6, sh_mm: 7.2, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'air3_tele_48mp': {
+    label: 'Air 3 — Tele 70mm · 48MP',
+    drone: 'DJI Air 3', camera: 'Tele Media (1/1.3" CMOS)', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 15.04, sw_mm: 9.6, sh_mm: 7.2, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+
+  // ─── DJI Mini 4 Pro ─────────────────────────────────────────────────────────
+  'mini4pro_12mp': {
+    label: 'Mini 4 Pro — 24mm · 12MP',
+    drone: 'DJI Mini 4 Pro', camera: '1/1.3" CMOS f/1.7', note: 'Igual sensor que Mini 3 Pro. EXIF focal: 6.72mm',
+    f_mm: 6.72, sw_mm: 9.6, sh_mm: 7.2, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'mini4pro_48mp': {
+    label: 'Mini 4 Pro — 24mm · 48MP',
+    drone: 'DJI Mini 4 Pro', camera: '1/1.3" CMOS f/1.7', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 6.72, sw_mm: 9.6, sh_mm: 7.2, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+
+  // ─── DJI Mini 3 Pro ─────────────────────────────────────────────────────────
+  'mini3pro_12mp': {
+    label: 'Mini 3 Pro — 24mm · 12MP',
+    drone: 'DJI Mini 3 Pro', camera: '1/1.3" CMOS f/1.7', note: 'Mismo sensor y óptica que Mini 4 Pro',
+    f_mm: 6.72, sw_mm: 9.6, sh_mm: 7.2, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'mini3pro_48mp': {
+    label: 'Mini 3 Pro — 24mm · 48MP',
+    drone: 'DJI Mini 3 Pro', camera: '1/1.3" CMOS f/1.7', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 6.72, sw_mm: 9.6, sh_mm: 7.2, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+
+  // ─── DJI Mavic 3 Pro — Hasselblad 24mm ─────────────────────────────────────
+  'm3pro_wide_20mp': {
+    label: 'Mavic 3 Pro — Hasselblad 24mm · 20MP',
+    drone: 'DJI Mavic 3 Pro', camera: 'Hasselblad 4/3 CMOS (17.3×13mm)', note: 'Apertura variable f/2.8–f/11',
+    f_mm: 12.29, sw_mm: 17.3, sh_mm: 13.0, res_w: 5280, res_h: 3956,
+    mp: 20, min_interval_s: 2
+  },
+  // ─── DJI Mavic 3 Pro — Tele Media 70mm ──────────────────────────────────────
+  'am3pro_tele70_12mp': {
+    label: 'Mavic 3 Pro — Tele 70mm · 12MP',
+    drone: 'DJI Mavic 3 Pro', camera: 'Tele Media 1/1.3" (10×7.5mm)', note: 'Quad-Bayer binning',
+    f_mm: 15.04, sw_mm: 10.0, sh_mm: 7.5, res_w: 4032, res_h: 3024,
+    mp: 12, min_interval_s: 2
+  },
+  'am3pro_tele70_48mp': {
+    label: 'Mavic 3 Pro — Tele 70mm · 48MP',
+    drone: 'DJI Mavic 3 Pro', camera: 'Tele Media 1/1.3" (10×7.5mm)', note: 'Resolución completa — requiere intervalo ≥5s',
+    f_mm: 15.04, sw_mm: 10.0, sh_mm: 7.5, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+
+  // ─── DJI Mavic 4 Pro — Hasselblad 28mm ─────────────────────────────────────
+  'm4pro_wide_25mp': {
+    label: 'Mavic 4 Pro — Hasselblad 28mm · 25MP',
+    drone: 'DJI Mavic 4 Pro', camera: 'Hasselblad 4/3 CMOS (17.4×13mm)', note: 'Apertura variable f/2.0–f/11 · Quad-Bayer nativo',
+    f_mm: 14.28, sw_mm: 17.4, sh_mm: 13.0, res_w: 5568, res_h: 4176,
+    mp: 25, min_interval_s: 2
+  },
+  'm4pro_wide_100mp': {
+    label: 'Mavic 4 Pro — Hasselblad 28mm · 100MP',
+    drone: 'DJI Mavic 4 Pro', camera: 'Hasselblad 4/3 CMOS (17.4×13mm)', note: 'Quad-Bayer alta res — intervalo ≥7s recomendado',
+    f_mm: 14.28, sw_mm: 17.4, sh_mm: 13.0, res_w: 11136, res_h: 8352,
+    mp: 100, min_interval_s: 7
+  },
+  // ─── DJI Mavic 4 Pro — Tele 70mm ────────────────────────────────────────────
+  'm4pro_tele70_48mp': {
+    label: 'Mavic 4 Pro — Tele 70mm · 48MP',
+    drone: 'DJI Mavic 4 Pro', camera: 'Tele Media 1/1.3" (10×7.5mm)', note: 'Resolución completa — intervalo ≥5s',
+    f_mm: 15.04, sw_mm: 10.0, sh_mm: 7.5, res_w: 8064, res_h: 6048,
+    mp: 48, min_interval_s: 5
+  },
+  // ─── DJI Mavic 4 Pro — Tele 168mm ───────────────────────────────────────────
+  'm4pro_tele168_50mp': {
+    label: 'Mavic 4 Pro — Tele 168mm · 50MP',
+    drone: 'DJI Mavic 4 Pro', camera: 'Tele 1/1.5" (8.3×6.2mm)', note: 'Alta focal — fotogrametría de inspección cercana',
+    f_mm: 23.52, sw_mm: 8.3, sh_mm: 6.2, res_w: 8736, res_h: 6544,
+    mp: 50, min_interval_s: 5
+  },
+
+  // ─── MANUAL (entrada libre) ──────────────────────────────────────────────────
+  'custom': {
+    label: '⚙ Manual — ingresar parámetros',
+    drone: '', camera: '', note: 'Edita los campos manualmente',
+    f_mm: 8.0, sw_mm: 9.6, sh_mm: 7.2, res_w: 4000, res_h: 3000,
+    mp: 0, min_interval_s: 2
+  }
+};
+
+// Compatibilidad con código existente (onCameraChange usa CAMERAS.wide/tele)
+const CAMERAS = {
+  wide: DRONE_DB['air3s_wide_12mp'],
+  tele: DRONE_DB['air3s_tele_12mp']
+};
+
+// ══════════════════════════════════════════════════
+// MODO DE MISIÓN
+// ══════════════════════════════════════════════════
+function setMisionMode(m){
+  misionMode=m;
+  document.getElementById('modeTabA').classList.toggle('act',m==='A');
+  document.getElementById('modeTabB').classList.toggle('act',m==='B');
+  document.getElementById('modeTabC').classList.toggle('act',m==='C');
+  document.getElementById('modeDescA').style.display=m==='A'?'block':'none';
+  document.getElementById('modeDescB').style.display=m==='B'?'block':'none';
+  document.getElementById('modeDescC').style.display=m==='C'?'block':'none';
+  const modeAPanel=document.getElementById('modeAPanel');
+  if(modeAPanel) modeAPanel.style.display=m==='A'?'flex':'none';
+  document.getElementById('modeB_interval_panel').style.display=m==='B'?'block':'none';
+  const subdivPanel=document.getElementById('subdivPanel');
+  if(subdivPanel) subdivPanel.style.display=(m==='B'||m==='C')?'flex':'none';
+  const perimPanel=document.getElementById('perimPanel');
+  if(perimPanel) perimPanel.style.display=m==='C'?'flex':'none';
+  // Punto de vuelta solo en Modo B
+  const tmpEl=document.getElementById('turnMidpointPanel');
+  if(tmpEl) tmpEl.style.display=m==='B'?'block':'none';
+  // Texto de subdivisión según modo
+  const siEl=document.getElementById('subdivInfo');
+  if(siEl){ const d=document.getElementById('max_seg_dist')?.value||50; siEl.innerHTML=m==='C'?'Subdivide los lados del peru00edmetro cada <span id="subdivDistLabel">'+d+'</span> m para mantener la trayectoria recta sobre el borde.':'DJI Fly curva la trayectoria entre waypoints distantes. Subdividir tramos cada <span id="subdivDistLabel">'+d+'</span> m mantiene la ruta pru00e1cticamente recta y conserva el traslape.'; }
+  // Ocultar dirección pasadas y doble grilla en modo C
+  const flightOptions=document.getElementById('flightDirRow');
+  if(flightOptions) flightOptions.style.display=m==='C'?'none':'grid';
+  if(m==='B') onIntervalChange();
+  if(m==='C') onPerimChange();
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+function onIntervalChange(){
+  // Modo B: velocidad = distancia_entre_fotos / intervalo
+  const h=+document.getElementById('altura').value||80;
+  const olF=+document.getElementById('overlap_f').value/100;
+  const fp=calcFootprint(h);
+  const stepAlong=fp.fh*(1-olF);   // metros entre fotos
+  const intSeg=+document.getElementById('intervalo_seg').value||3;
+  const velCalc=stepAlong/intSeg;
+  document.getElementById('vel_calculada').value=velCalc.toFixed(2);
+  // También actualizar el campo velocidad para que los stats sean consistentes
+  document.getElementById('velocidad').value=velCalc.toFixed(2);
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+// ══════════════════════════════════════════════════
+// SECTIONS TOGGLE (colapsable)
+// ══════════════════════════════════════════════════
+function toggleSec(hdr){
+  // Usar querySelector dentro del .sec padre para ser más robusto
+  const sec = hdr.parentElement;
+  const body = sec.querySelector('.sec-body');
+  const arrow = hdr.querySelector('.sec-arrow');
+  if(!body) return;
+  body.classList.toggle('collapsed');
+  arrow.classList.toggle('open');
+}
+
+// ══════════════════════════════════════════════════
+// GOOGLE MAPS
+// ══════════════════════════════════════════════════
+function loadGoogleMaps(){
+  const key=document.getElementById('apiKeyInput').value.trim();
+  if(!key){alert('Ingresa una API Key.');return;}
+  const s=document.createElement('script');
+  s.src=`https://maps.googleapis.com/maps/api/js?key=${key}&callback=initMap`;
+  s.onerror=()=>alert('Error cargando Google Maps. Verifica tu API Key y dominios autorizados.');
+  document.head.appendChild(s);
+  document.getElementById('apiOverlay').style.opacity='.5';
+  document.getElementById('apiOverlay').style.pointerEvents='none';
+}
+window.initMap=function(){
+  document.getElementById('apiOverlay').classList.add('hidden');
+  gmap=new google.maps.Map(document.getElementById('map'),{
+    center:{lat:19.7,lng:-101.2},zoom:14,
+    mapTypeId:'satellite',disableDefaultUI:true
+  });
+  gmap.addListener('click',onMapClick);
+  gmap.addListener('mousemove',e=>{
+    document.getElementById('coordsInfo').style.display='block';
+    document.getElementById('cursorLat').textContent=e.latLng.lat().toFixed(6);
+    document.getElementById('cursorLon').textContent=e.latLng.lng().toFixed(6);
+  });
+  setupInputListeners();
+  setStatus('ready','Listo — traza el polígono o ingresa coordenadas');
+};
+
+// ══════════════════════════════════════════════════
+// LEAFLET MODE — Mapa real sin API Key
+// ══════════════════════════════════════════════════
+const L_TILES = {
+  satellite: 'http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+  map:       'http://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'
+};
+let lCurrentType = 'satellite';
+let lTileLayer   = null;
+
+function loadLeafletMode(){
+  leafletMode = true;
+  document.getElementById('apiOverlay').classList.add('hidden');
+  document.getElementById('map').style.display = 'none';
+  document.getElementById('demoCanvas').style.display = 'none';
+  const mapDiv = document.getElementById('leafletMap');
+  mapDiv.style.display = 'block';
+
+  // Inicializar mapa Leaflet centrado en Morelia
+  leafletMap = L.map('leafletMap', {
+    center: [19.702, -101.19],
+    zoom: 15,
+    zoomControl: false,       // usamos nuestros botones
+    attributionControl: true
+  });
+
+  // Tile layer satelital Google
+  lTileLayer = L.tileLayer(L_TILES.satellite, {
+    maxZoom: 21,
+    attribution: '© Google Maps'
+  }).addTo(leafletMap);
+
+  // Capas de dibujo
+  lMarkersLayer = L.layerGroup().addTo(leafletMap);
+  lPolyLayer    = L.layerGroup().addTo(leafletMap);
+  lRouteLayer   = L.layerGroup().addTo(leafletMap);
+
+  // Click para trazar polígono
+  leafletMap.on('click', e => {
+    onMapClick({ latLng: { lat: ()=>e.latlng.lat, lng: ()=>e.latlng.lng } });
+  });
+
+  // Coordenadas en cursor
+  leafletMap.on('mousemove', e => {
+    document.getElementById('coordsInfo').style.display = 'block';
+    document.getElementById('cursorLat').textContent = e.latlng.lat.toFixed(6);
+    document.getElementById('cursorLon').textContent = e.latlng.lng.toFixed(6);
+  });
+
+  setupInputListeners();
+  setStatus('ready', 'Leaflet · Satelital Google · Traza el polígono');
+}
+
+// Cambiar tipo de tile en Leaflet
+function lSetTileType(type){
+  if(!leafletMap || !lTileLayer) return;
+  lCurrentType = type;
+  leafletMap.removeLayer(lTileLayer);
+  lTileLayer = L.tileLayer(L_TILES[type], {
+    maxZoom: 21,
+    attribution: type==='satellite' ? '© Google Maps Satellite' : '© Google Maps'
+  }).addTo(leafletMap);
+  // Asegurar que las capas de dibujo queden arriba
+  if(lMarkersLayer) lMarkersLayer.bringToFront();
+  if(lPolyLayer)    lPolyLayer.bringToFront();
+  if(lRouteLayer)   lRouteLayer.bringToFront();
+}
+
+// ── Dibujo del polígono en Leaflet ────────────────────────────────────────────
+function addLeafletMarker(pt, idx){
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:22px;height:22px;border-radius:50%;
+      background:var(--acc);border:2px solid #000;
+      display:flex;align-items:center;justify-content:center;
+      font-size:9px;font-weight:700;color:#000;
+      font-family:'Space Mono',monospace;cursor:pointer;
+      box-shadow:0 2px 6px rgba(0,0,0,.5)
+    ">${idx}</div>`,
+    iconSize:[22,22], iconAnchor:[11,11]
+  });
+  const m = L.marker([pt.lat, pt.lng], {icon, draggable:true}).addTo(lMarkersLayer);
+  m.on('dragend', e => {
+    const i = polyMarkers.indexOf(m);
+    if(i>=0){
+      polyPoints[i] = {lat: e.target.getLatLng().lat, lng: e.target.getLatLng().lng};
+      drawLeafletPoly();
+      drawLeafletRoute();
+      updateStats();
+    }
+  });
+  polyMarkers.push(m);
+}
+
+function drawLeafletPoly(){
+  lPolyLayer.clearLayers();
+  if(polyPoints.length < 2) return;
+  // Polígono relleno
+  if(polyPoints.length >= 3){
+    L.polygon(polyPoints.map(p=>[p.lat,p.lng]), {
+      color:'#00e5ff', weight:2, fillColor:'#00e5ff', fillOpacity:0.08
+    }).addTo(lPolyLayer);
+  } else {
+    L.polyline(polyPoints.map(p=>[p.lat,p.lng]), {
+      color:'#00e5ff', weight:2, dashArray:'6,4'
+    }).addTo(lPolyLayer);
+  }
+}
+
+function drawLeafletRoute(){
+  lRouteLayer.clearLayers();
+  if(polyPoints.length < 3) return;
+
+  const wps = misionMode==='C' ? generatePerimWaypoints()
+    : misionMode==='B' ? generateRouteWaypoints()
+    : generateWaypoints();
+  if(!wps || wps.length < 2) return;
+
+  const COLORS = ['#ffb800','#00b8cc','#22c55e','#a855f7','#ef4444','#fb923c'];
+
+  // ── MODO A: línea continua completa + círculo en cada WP ────────────────────
+  // Una sola polyline con todos los WPs en orden — igual que el canvas (ctx.lineTo)
+  // Los "retornos" entre pasadas quedan conectados automáticamente
+  if(misionMode==='A'){
+    L.polyline(wps.map(w=>[w.lat,w.lng]),{
+      color:'rgba(255,184,0,0.75)', weight:1.5
+    }).addTo(lRouteLayer);
+    wps.forEach(w=>{
+      L.circleMarker([w.lat,w.lng],{
+        radius:3, color:'rgba(0,0,0,0.4)', fillColor:'#ffb800', fillOpacity:1, weight:1
+      }).addTo(lRouteLayer);
+    });
+    return;
+  }
+
+  // ── MODO C: perímetro ────────────────────────────────────────────────────────
+  if(misionMode==='C'){
+    L.polyline(wps.map(w=>[w.lat,w.lng]),{
+      color:'#ffb800', weight:2, opacity:0.85
+    }).addTo(lRouteLayer);
+    wps.forEach(w=>{
+      L.circleMarker([w.lat,w.lng],{
+        radius:4, color:'#ffb800', fillColor:'#ffb800', fillOpacity:1, weight:1
+      }).addTo(lRouteLayer);
+    });
+    return;
+  }
+
+  // ── MODO B: replicar exactamente la lógica del canvas ───────────────────────
+  const _turnOn = document.getElementById('turn_midpoint')?.checked;
+
+  // Mismo filtro que el canvas:
+  // con turn_midpoint ON → excluir isStripStart/End de la línea (igual que canvas línea wpsViz)
+  // con turn_midpoint OFF → todos los WPs en la línea
+  const wpsViz = _turnOn
+    ? wps.filter(w => !w.isStripEnd && !w.isStripStart)
+    : wps;
+
+  // Línea continua única
+  L.polyline(wpsViz.map(w=>[w.lat,w.lng]),{
+    color:'rgba(255,184,0,0.75)', weight:1.8
+  }).addTo(lRouteLayer);
+
+  // Marcadores sobre TODOS los wps (activeWps completo, igual que canvas)
+  wps.forEach(w=>{
+    if(w.isTurnPoint){
+      // Naranja — punto de vuelta
+      L.circleMarker([w.lat,w.lng],{
+        radius:5, color:'#000', weight:1.5, fillColor:'#ff7b00', fillOpacity:1
+      }).addTo(lRouteLayer);
+    } else if(w.isStripStart || w.isStripEnd){
+      // Cian — extremo de pasada (solo si turn_midpoint OFF, igual que canvas)
+      if(!_turnOn){
+        L.circleMarker([w.lat,w.lng],{
+          radius:5, color:'#000', weight:1.5, fillColor:'#00e5ff', fillOpacity:1
+        }).addTo(lRouteLayer);
+      }
+    } else {
+      // Ámbar pequeño — subdivisión
+      L.circleMarker([w.lat,w.lng],{
+        radius:3, color:'rgba(0,0,0,0.4)', weight:1, fillColor:'#ffb800', fillOpacity:1
+      }).addTo(lRouteLayer);
+    }
+  });
+}
+
+function fitPolyLeaflet(){
+  if(!leafletMap || polyPoints.length < 2) return;
+  const bounds = L.latLngBounds(polyPoints.map(p=>[p.lat,p.lng]));
+  leafletMap.fitBounds(bounds, {padding:[40,40]});
+}
+
+// ── Zoom via botones toolbar ───────────────────────────────────────────────────
+function doZoom(dir){
+  if(gmap) gmap.setZoom(gmap.getZoom()+dir);
+  else if(leafletMap) leafletMap.setZoom(leafletMap.getZoom()+dir);
+  else if(demoMode){ canvasView.scale*=dir>0?1.3:0.77; renderCanvas(); }
+}
+
+// ── Toggle sat/mapa ───────────────────────────────────────────────────────────
+function toggleMapType(){
+  if(gmap){
+    gmap.setMapTypeId(gmap.getMapTypeId()==='satellite'?'roadmap':'satellite');
+  } else if(leafletMode){
+    lSetTileType(lCurrentType==='satellite'?'map':'satellite');
+  }
+}
+
+// ══════════════════════════════════════════════════
+// DEMO MODE — Canvas 2D interactivo
+// ══════════════════════════════════════════════════
+function loadDemoMode(){
+  demoMode=true;
+  document.getElementById('apiOverlay').classList.add('hidden');
+  document.getElementById('map').style.display='none';
+  canvas=document.getElementById('demoCanvas');
+  canvas.style.display='block';
+  document.getElementById('canvasLegend').style.display='flex';
+  ctx=canvas.getContext('2d');
+  resizeCanvas();
+  window.addEventListener('resize',resizeCanvas);
+
+  // vista inicial: Morelia aprox
+  canvasView={cx:-101.19,cy:19.702,scale:8000};
+
+  canvas.addEventListener('click',onCanvasClick);
+  canvas.addEventListener('mousedown',e=>{
+    if(e.button===1||e.altKey){
+      isDragging=true;
+      dragStart={x:e.clientX,y:e.clientY};
+      dragView={...canvasView};
+      e.preventDefault();
+    }
+  });
+  canvas.addEventListener('mousemove',e=>{
+    const pt=canvasToPt(e.offsetX,e.offsetY);
+    document.getElementById('coordsInfo').style.display='block';
+    document.getElementById('cursorLat').textContent=pt.lat.toFixed(6);
+    document.getElementById('cursorLon').textContent=pt.lng.toFixed(6);
+    if(isDragging){
+      const dx=(e.clientX-dragStart.x)/canvasView.scale;
+      const dy=(e.clientY-dragStart.y)/canvasView.scale;
+      canvasView.cx=dragView.cx-dx;
+      canvasView.cy=dragView.cy+dy;
+      renderCanvas();
+    }
+  });
+  canvas.addEventListener('mouseup',()=>isDragging=false);
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const factor=e.deltaY<0?1.2:0.83;
+    canvasView.scale*=factor;
+    renderCanvas();
+  },{passive:false});
+  canvas.addEventListener('contextmenu',e=>{e.preventDefault();
+    if(drawing&&polyPoints.length>=3){finishDrawDemo();}
+  });
+
+  setupInputListeners();
+  setStatus('ready','Modo demo — traza el polígono o ingresa coordenadas');
+  renderCanvas();
+}
+
+function resizeCanvas(){
+  if(!canvas) return;
+  canvas.width=canvas.offsetWidth||window.innerWidth-350;
+  canvas.height=canvas.offsetHeight||window.innerHeight;
+  renderCanvas();
+}
+
+function ptToCanvas(lat,lng){
+  const W=canvas.width, H=canvas.height;
+  const x=W/2+(lng-canvasView.cx)*canvasView.scale;
+  const y=H/2-(lat-canvasView.cy)*canvasView.scale;
+  return{x,y};
+}
+function canvasToPt(x,y){
+  const W=canvas.width,H=canvas.height;
+  return{
+    lat:canvasView.cy+(H/2-y)/canvasView.scale,
+    lng:canvasView.cx+(x-W/2)/canvasView.scale
+  };
+}
+
+function renderCanvas(){
+  if(!ctx) return;
+  const W=canvas.width, H=canvas.height;
+  ctx.clearRect(0,0,W,H);
+
+  // fondo con cuadrícula
+  ctx.fillStyle='#07090d';
+  ctx.fillRect(0,0,W,H);
+
+  // cuadrícula de referencia
+  ctx.strokeStyle='#0f1520';
+  ctx.lineWidth=1;
+  const gridDeg=getGridStep();
+  const startLng=Math.floor((canvasView.cx-W/canvasView.scale/2)/gridDeg)*gridDeg;
+  const startLat=Math.floor((canvasView.cy-H/canvasView.scale/2)/gridDeg)*gridDeg;
+  for(let lng=startLng;lng<canvasView.cx+W/canvasView.scale/2;lng+=gridDeg){
+    const{x}=ptToCanvas(0,lng);
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();
+    ctx.fillStyle='#1c2438';ctx.font='9px Space Mono';ctx.textAlign='center';
+    ctx.fillText(lng.toFixed(3)+'°',x,H-4);
+  }
+  for(let lat=startLat;lat<canvasView.cy+H/canvasView.scale/2;lat+=gridDeg){
+    const{y}=ptToCanvas(lat,0);
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();
+    ctx.fillStyle='#1c2438';ctx.textAlign='left';
+    ctx.fillText(lat.toFixed(3)+'°',3,y-3);
+  }
+
+  // ruta de vuelo
+  if(polyPoints.length>=3){
+    const activeWps = misionMode==='C' ? generatePerimWaypoints()
+      : misionMode==='B' ? generateRouteWaypoints()
+      : generateWaypoints();
+
+    if(activeWps.length){
+      // Línea de ruta: filtrar isStrip solo si hay punto de vuelta activo
+      // Sin punto de vuelta, los isStripEnd/isStripStart son los únicos WPs y deben mostrarse
+      const _turnActive = document.getElementById('turn_midpoint')?.checked;
+      const wpsViz = (misionMode==='B' && _turnActive)
+        ? activeWps.filter(w => !w.isStripEnd && !w.isStripStart)
+        : activeWps;
+      // Modo C: usar wpsC directamente (generatePerimWaypoints ya fue llamado en updateStats)
+      ctx.strokeStyle='rgba(255,184,0,0.6)';ctx.lineWidth=1.5;ctx.setLineDash([]);
+      ctx.beginPath();
+      wpsViz.forEach((w,i)=>{
+        const{x,y}=ptToCanvas(w.lat,w.lng);
+        i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+
+      // Puntos de waypoint en modo B — 3 tipos visuales
+      if(misionMode==='B'){
+        activeWps.forEach((w,i)=>{
+          const{x,y}=ptToCanvas(w.lat,w.lng);
+          // isExtreme ya no se usa — usamos isStripStart/isStripEnd directamente
+
+          const _turnOn = document.getElementById('turn_midpoint')?.checked;
+          if(w.isTurnPoint){
+            ctx.fillStyle='#ff7b00';ctx.strokeStyle='#000';ctx.lineWidth=1.5;
+            ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.stroke();
+          } else if(w.isPerimVertex){
+            // Vértice perimetral: círculo verde
+            ctx.fillStyle='#22c55e';ctx.strokeStyle='#000';ctx.lineWidth=1.5;
+            ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.stroke();
+          } else if(w.isStripStart || w.isStripEnd){
+            if(!_turnOn){
+              ctx.fillStyle='#00e5ff';ctx.strokeStyle='#000';ctx.lineWidth=1.5;
+              ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();ctx.stroke();
+            }
+          } else {
+            ctx.fillStyle='#ffb800';ctx.strokeStyle='rgba(0,0,0,0.5)';ctx.lineWidth=1;
+            ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();ctx.stroke();
+          }
+        });
+      }
+    }
+  }
+
+  // polígono original (cian sólido)
+  if(polyPoints.length>=2){
+    const pts=polyPoints.map(p=>ptToCanvas(p.lat,p.lng));
+    ctx.strokeStyle='#00e5ff';ctx.lineWidth=2;ctx.setLineDash([]);
+    if(polyPoints.length>=3){
+      ctx.fillStyle='rgba(0,229,255,0.07)';
+      ctx.beginPath();
+      pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+      ctx.closePath();ctx.fill();ctx.stroke();
+    } else {
+      ctx.beginPath();
+      pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+      ctx.stroke();
+    }
+  }
+  // polígono de trabajo con offset (cian punteado, solo si offset != 0)
+  const _offsetM = +document.getElementById('poly_offset')?.value || 0;
+  if(polyPoints.length>=3 && Math.abs(_offsetM)>0.01){
+    const workPts = computeOffsetPoly(polyPoints, _offsetM).map(p=>ptToCanvas(p.lat,p.lng));
+    ctx.strokeStyle='#00e5ff';ctx.lineWidth=1.5;ctx.setLineDash([6,4]);
+    ctx.beginPath();
+    workPts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+    ctx.closePath();ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // marcadores de vértices
+  polyPoints.forEach((p,i)=>{
+    const{x,y}=ptToCanvas(p.lat,p.lng);
+    ctx.fillStyle='#00e5ff';ctx.strokeStyle='#000';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#000';ctx.font='bold 8px Space Mono';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(i+1,x,y);
+  });
+
+  ctx.setLineDash([]);
+}
+
+function getGridStep(){
+  const d=1/canvasView.scale*200;
+  if(d>1) return Math.ceil(d);
+  if(d>0.1) return Math.round(d*10)/10;
+  return Math.round(d*100)/100||0.01;
+}
+
+function onCanvasClick(e){
+  if(!drawing||isDragging) return;
+  const pt=canvasToPt(e.offsetX,e.offsetY);
+  if(polyPoints.length>=3){
+    const first=polyPoints[0];
+    const d=haversine(pt.lat,pt.lng,first.lat,first.lng);
+    if(d<20){finishDrawDemo();return;}
+  }
+  polyPoints.push({lat:pt.lat,lng:pt.lng});
+  setStatus('drawing',`Vértice ${polyPoints.length} — clic en 1er punto o clic derecho para cerrar`);
+  renderCanvas();
+}
+
+function finishDrawDemo(){
+  drawing=false;
+  document.getElementById('btnDraw').textContent='✏️ Trazar en mapa';
+  updateStats();
+  renderCanvas();
+  document.getElementById('btnKMZ').disabled=(polyPoints.length<3);
+  document.getElementById('btnKML').disabled=(polyPoints.length<3);
+  setStatus('ready',`Polígono listo — ${polyPoints.length} vértices`);
+}
+
+// ══════════════════════════════════════════════════
+// GOOGLE MAPS DRAWING
+// ══════════════════════════════════════════════════
+function startDraw(){
+  if(!gmap && !demoMode && !leafletMode){ alert('Carga el mapa primero.'); return; }
+  clearPoly();
+  drawing=true;
+  document.getElementById('btnDraw').textContent='🔴 Dibujando...';
+  setStatus('drawing','Clic para colocar vértices — clic en 1er punto para cerrar');
+}
+
+function onMapClick(e){
+  if(!drawing) return;
+  const pt={lat:e.latLng.lat(),lng:e.latLng.lng()};
+  if(polyPoints.length>=3){
+    const d=haversine(pt.lat,pt.lng,polyPoints[0].lat,polyPoints[0].lng);
+    if(d<15){finishDraw();return;}
+  }
+  polyPoints.push(pt);
+  if(gmap)        addGMapMarker(pt,polyPoints.length);
+  if(leafletMode) addLeafletMarker(pt,polyPoints.length);
+  redrawGMapPoly();
+  if(leafletMode) drawLeafletPoly();
+  setStatus('drawing',`Vértice ${polyPoints.length} — clic en 1er punto para cerrar`);
+}
+
+function addGMapMarker(pt,idx){
+  if(!gmap) return;
+  const m=new google.maps.Marker({
+    position:pt,map:gmap,
+    label:{text:String(idx),color:'#000',fontSize:'9px',fontWeight:'700'},
+    icon:{path:google.maps.SymbolPath.CIRCLE,scale:8,fillColor:'#00e5ff',fillOpacity:1,strokeColor:'#000',strokeWeight:1.5}
+  });
+  polyMarkers.push(m);
+}
+
+function redrawGMapPoly(){
+  if(!gmap) return;
+  if(polyline) polyline.setMap(null);
+  polyline=new google.maps.Polyline({path:polyPoints,map:gmap,strokeColor:'#00e5ff',strokeWeight:2,strokeOpacity:.85});
+}
+
+function finishDraw(){
+  drawing=false;
+  document.getElementById('btnDraw').textContent='✏️ Trazar';
+  if(gmap){
+    if(filledPoly) filledPoly.setMap(null);
+    filledPoly=new google.maps.Polygon({
+      paths:polyPoints,map:gmap,
+      strokeColor:'#00e5ff',strokeWeight:2,fillColor:'#00e5ff',fillOpacity:.08
+    });
+    if(polyline) polyline.setMap(null);
+    drawGMapRoute();
+  }
+  if(leafletMode){
+    drawLeafletPoly();
+    drawLeafletRoute();
+  }
+  updateStats();
+  document.getElementById('btnKMZ').disabled=(polyPoints.length<3);
+  document.getElementById('btnKML').disabled=(polyPoints.length<3);
+  setStatus('ready',`Polígono — ${polyPoints.length} vértices`);
+}
+
+function drawGMapRoute(){
+  routePolylines.forEach(l=>{if(l.setMap)l.setMap(null);}); routePolylines=[];
+  if(!gmap) return;
+  const activeWps = misionMode==='C' ? generatePerimWaypoints()
+    : misionMode==='B' ? generateRouteWaypoints() : generateWaypoints();
+  if(!activeWps.length) return;
+
+  // En modo B respetar turn_midpoint para la línea de ruta
+  const _turnOn = document.getElementById('turn_midpoint')?.checked;
+  const wpsViz = (misionMode==='B' && _turnOn)
+    ? activeWps.filter(w => !w.isStripEnd && !w.isStripStart)
+    : activeWps;
+
+  const pl=new google.maps.Polyline({
+    path:wpsViz.map(w=>({lat:w.lat,lng:w.lng})),
+    map:gmap,strokeColor:'#ffb800',strokeWeight:1.5,strokeOpacity:.7
+  });
+  routePolylines.push(pl);
+
+  if(misionMode==='B'){
+    activeWps.forEach((w)=>{
+      if(w.isStripStart || w.isStripEnd){
+        if(_turnOn) return; // ocultar extremos si turn_midpoint ON
+        // Cian — extremo de pasada
+        const m=new google.maps.Marker({
+          position:{lat:w.lat,lng:w.lng},map:gmap,
+          icon:{path:google.maps.SymbolPath.CIRCLE,
+            scale:6,fillColor:'#00e5ff',fillOpacity:1,strokeColor:'#000',strokeWeight:1}
+        });
+        routePolylines.push(m);
+        return;
+      }
+      const color = w.isTurnPoint ? '#ff7b00' : '#ffb800';
+      const scale = w.isTurnPoint ? 6 : 4;
+      const m=new google.maps.Marker({
+        position:{lat:w.lat,lng:w.lng},map:gmap,
+        icon:{path:google.maps.SymbolPath.CIRCLE,
+          scale,fillColor:color,fillOpacity:1,strokeColor:'#000',strokeWeight:1}
+      });
+      routePolylines.push(m);
+    });
+  }
+}
+
+function clearPoly(){
+  polyPoints=[];
+  // Google Maps
+  polyMarkers.forEach(m=>{if(m&&m.setMap)m.setMap(null);}); polyMarkers=[];
+  if(polyline&&polyline.setMap) polyline.setMap(null); polyline=null;
+  if(filledPoly&&filledPoly.setMap) filledPoly.setMap(null); filledPoly=null;
+  routePolylines.forEach(l=>{if(l&&l.setMap)l.setMap(null);}); routePolylines=[];
+  // Leaflet
+  if(lMarkersLayer) lMarkersLayer.clearLayers();
+  if(lPolyLayer)    lPolyLayer.clearLayers();
+  if(lRouteLayer)   lRouteLayer.clearLayers();
+  drawing=false;
+  document.getElementById('btnDraw').textContent='✏️ Trazar';
+  document.getElementById('btnKMZ').disabled=true;
+  document.getElementById('btnKML').disabled=true;
+  clearStats();
+  if(demoMode) renderCanvas();
+  setStatus('ready','Sin polígono');
+}
+
+function undoLast(){
+  if(!polyPoints.length) return;
+  polyPoints.pop();
+  if(gmap){ const m=polyMarkers.pop(); if(m&&m.setMap)m.setMap(null); redrawGMapPoly(); }
+  if(leafletMode){
+    // Redibujar markers desde cero
+    lMarkersLayer.clearLayers();
+    polyMarkers=[];
+    polyPoints.forEach((p,i)=>addLeafletMarker(p,i+1));
+    drawLeafletPoly();
+    drawLeafletRoute();
+  }
+  if(demoMode) renderCanvas();
+  if(polyPoints.length>=3) updateStats();
+  else clearStats();
+}
+
+function fitPoly(){
+  if(!polyPoints.length) return;
+  if(gmap){
+    const bounds=new google.maps.LatLngBounds();
+    polyPoints.forEach(p=>bounds.extend(p));
+    gmap.fitBounds(bounds);
+  } else if(leafletMode){
+    fitPolyLeaflet();
+  } else if(demoMode&&polyPoints.length){
+    const bnds=polygonBounds(polyPoints);
+    canvasView.cx=(bnds.minLng+bnds.maxLng)/2;
+    canvasView.cy=(bnds.minLat+bnds.maxLat)/2;
+    const W=canvas.width,H=canvas.height;
+    const scaleX=W/((bnds.maxLng-bnds.minLng||0.01)*1.4);
+    const scaleY=H/((bnds.maxLat-bnds.minLat||0.01)*1.4);
+    canvasView.scale=Math.min(scaleX,scaleY);
+    renderCanvas();
+  }
+}
+
+function toggleMapType(){
+  if(gmap){
+    const t=gmap.getMapTypeId();
+    gmap.setMapTypeId(t==='satellite'?'roadmap':'satellite');
+  } else if(leafletMode){
+    lSetTileType(lCurrentType==='satellite'?'map':'satellite');
+    // Actualizar icono del botón
+    const btn = document.getElementById('btnSat');
+    if(btn) btn.title = lCurrentType==='satellite' ? 'Cambiar a Mapa' : 'Cambiar a Satélite';
+  } else if(demoMode){
+    // Desde canvas: activar Leaflet conservando el polígono actual
+    activateLeafletFromCanvas();
+  }
+}
+
+// Transición del modo canvas al mapa Leaflet conservando el polígono
+function activateLeafletFromCanvas(){
+  // Guardar polígono actual antes de cambiar de modo
+  const savedPoints = polyPoints.map(p=>({lat:p.lat, lng:p.lng}));
+  if(!savedPoints.length){
+    // Sin polígono: simplemente activar Leaflet
+    demoMode = false;
+    document.getElementById('demoCanvas').style.display = 'none';
+    document.getElementById('canvasLegend').style.display = 'none';
+    loadLeafletMode();
+    return;
+  }
+
+  // Apagar canvas
+  demoMode = false;
+  document.getElementById('demoCanvas').style.display = 'none';
+  document.getElementById('canvasLegend').style.display = 'none';
+
+  // Activar Leaflet
+  loadLeafletMode();
+
+  // Restaurar polígono después de que Leaflet inicialice
+  setTimeout(()=>{
+    polyPoints = savedPoints;
+    polyMarkers = [];
+    polyPoints.forEach((p,i) => addLeafletMarker(p, i+1));
+    drawLeafletPoly();
+    drawLeafletRoute();
+    fitPolyLeaflet();
+    updateStats();
+    document.getElementById('btnKMZ').disabled = (polyPoints.length < 3);
+    document.getElementById('btnKML').disabled = (polyPoints.length < 3);
+    setStatus('ready', `Mapa satelital activo — ${polyPoints.length} vértices`);
+  }, 200);
+}
+function doZoom(d){
+  if(gmap) gmap.setZoom(gmap.getZoom()+d);
+  else if(leafletMode) leafletMap.setZoom(leafletMap.getZoom()+d);
+  else if(demoMode){ canvasView.scale*=d>0?1.3:0.77; renderCanvas(); }
+}
+
+// ══════════════════════════════════════════════════
+// MODAL DE COORDENADAS
+// ══════════════════════════════════════════════════
+let modalRows=[];
+
+function openCoordsModal(){
+  modalRows=polyPoints.map(p=>({lat:p.lat,lng:p.lng}));
+  if(modalRows.length===0){
+    // 4 filas vacías por defecto
+    for(let i=0;i<4;i++) modalRows.push({lat:'',lng:''});
+  }
+  renderModalTable();
+  document.getElementById('coordsModal').classList.remove('hidden');
+}
+
+function closeCoordsModal(){
+  document.getElementById('coordsModal').classList.add('hidden');
+}
+function closeModalOutside(e){
+  if(e.target===document.getElementById('coordsModal')) closeCoordsModal();
+}
+
+function renderModalTable(){
+  const tbody=document.getElementById('ptsTbody');
+  tbody.innerHTML='';
+  modalRows.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`
+      <td><span class="pt-badge">${i+1}</span></td>
+      <td><input type="text" value="${r.lat}" placeholder="ej. 19.706543" onchange="modalRows[${i}].lat=this.value"/></td>
+      <td><input type="text" value="${r.lng}" placeholder="ej. -101.194210" onchange="modalRows[${i}].lng=this.value"/></td>
+      <td><button class="del-btn" onclick="removeModalRow(${i})">✕</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function addModalRow(){
+  modalRows.push({lat:'',lng:''});
+  renderModalTable();
+}
+
+function removeModalRow(i){
+  modalRows.splice(i,1);
+  renderModalTable();
+}
+
+function parsePasteArea(){
+  const txt=document.getElementById('pasteArea').value.trim();
+  if(!txt) return;
+  const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+  const parsed=[];
+  lines.forEach(line=>{
+    // soporta: lat,lon / lat lon / lat;lon
+    const parts=line.split(/[,;\s]+/);
+    if(parts.length>=2){
+      const lat=parseFloat(parts[0]);
+      const lng=parseFloat(parts[1]);
+      if(!isNaN(lat)&&!isNaN(lng)) parsed.push({lat,lng});
+    }
+  });
+  if(!parsed.length){alert('No se encontraron coordenadas válidas.');return;}
+  modalRows=parsed;
+  renderModalTable();
+  document.getElementById('pasteArea').value='';
+}
+
+function applyModalCoords(){
+  // Leer SIEMPRE desde los inputs del DOM (no de modalRows,
+  // porque onchange no dispara si el usuario no sale del campo)
+  const tbody=document.getElementById('ptsTbody');
+  const pts=[];
+  tbody.querySelectorAll('tr').forEach(tr=>{
+    const ins=tr.querySelectorAll('input[type=text]');
+    if(ins.length<2) return;
+    const lat=parseFloat(ins[0].value.replace(',','.'));
+    const lng=parseFloat(ins[1].value.replace(',','.'));
+    if(!isNaN(lat)&&!isNaN(lng)) pts.push({lat,lng});
+  });
+
+  if(pts.length<3){
+    alert('Necesitas al menos 3 puntos válidos.\nVerifica que los campos de latitud y longitud tengan valores numéricos.');
+    return;
+  }
+
+  // Si todavía no eligió mapa ni demo → activar demo automáticamente
+  if(!gmap && !demoMode && !leafletMode){ loadDemoMode(); }
+
+  // Limpiar estado anterior sin borrar polyPoints (los asignamos ahora)
+  polyMarkers.forEach(m=>{if(m&&m.setMap)m.setMap(null);}); polyMarkers=[];
+  if(polyline&&polyline.setMap) polyline.setMap(null); polyline=null;
+  if(filledPoly&&filledPoly.setMap) filledPoly.setMap(null); filledPoly=null;
+  routePolylines.forEach(l=>{if(l&&l.setMap)l.setMap(null);}); routePolylines=[];
+  if(lMarkersLayer) lMarkersLayer.clearLayers();
+  if(lPolyLayer)    lPolyLayer.clearLayers();
+  if(lRouteLayer)   lRouteLayer.clearLayers();
+  polyPoints=pts;
+  drawing=false;
+
+  function finishApply(){
+    if(gmap){
+      polyPoints.forEach((p,i)=>addGMapMarker(p,i+1));
+      if(filledPoly) filledPoly.setMap(null);
+      filledPoly=new google.maps.Polygon({
+        paths:polyPoints,map:gmap,
+        strokeColor:'#00e5ff',strokeWeight:2,
+        fillColor:'#00e5ff',fillOpacity:.08
+      });
+      drawGMapRoute();
+      fitPoly();
+    } else if(leafletMode){
+      polyPoints.forEach((p,i)=>addLeafletMarker(p,i+1));
+      drawLeafletPoly();
+      drawLeafletRoute();
+      fitPolyLeaflet();
+    } else if(demoMode){
+      fitPoly();
+      renderCanvas();
+    }
+    updateStats();
+    document.getElementById('btnKMZ').disabled=false;
+    document.getElementById('btnKML').disabled=false;
+    setStatus('ready',`Polígono aplicado — ${polyPoints.length} vértices`);
+  }
+
+  // Pequeño timeout para que el canvas se inicialice si acabamos de activar demo
+  setTimeout(finishApply, 80);
+  closeCoordsModal();
+}
+
+// ══════════════════════════════════════════════════
+// GEOMETRY
+// ══════════════════════════════════════════════════
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371000,r=Math.PI/180;
+  const dLa=(lat2-lat1)*r,dLo=(lon2-lon1)*r;
+  const a=Math.sin(dLa/2)**2+Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+function polygonAreaM2(pts){
+  let area=0; const n=pts.length, R=6371000, tr=Math.PI/180;
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n;
+    const xi=pts[i].lng*tr*R*Math.cos(pts[i].lat*tr), yi=pts[i].lat*tr*R;
+    const xj=pts[j].lng*tr*R*Math.cos(pts[j].lat*tr), yj=pts[j].lat*tr*R;
+    area+=xi*yj-xj*yi;
+  }
+  return Math.abs(area/2);
+}
+function polygonBounds(pts){
+  let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+  pts.forEach(p=>{minLat=Math.min(minLat,p.lat);maxLat=Math.max(maxLat,p.lat);minLng=Math.min(minLng,p.lng);maxLng=Math.max(maxLng,p.lng);});
+  return{minLat,maxLat,minLng,maxLng};
+}
+function pointInPolygon(pt,poly){
+  let inside=false; const n=poly.length;
+  for(let i=0,j=n-1;i<n;j=i++){
+    const xi=poly[i].lng,yi=poly[i].lat,xj=poly[j].lng,yj=poly[j].lat;
+    if(((yi>pt.lat)!==(yj>pt.lat))&&(pt.lng<(xj-xi)*(pt.lat-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+// ══════════════════════════════════════════════════
+// FLIGHT PLAN GENERATION
+// ══════════════════════════════════════════════════
+function getSensor(){
+  return{f_mm:+document.getElementById('f_mm').value, sw_mm:+document.getElementById('sw_mm').value, sh_mm:+document.getElementById('sh_mm').value, res_w:+document.getElementById('res_w').value, res_h:+document.getElementById('res_h').value};
+}
+function calcGSD(h){const s=getSensor();return(s.sw_mm/s.res_w)*100*h/s.f_mm;}
+function calcFootprint(h){const s=getSensor();return{fw:h*(s.sw_mm/s.f_mm),fh:h*(s.sh_mm/s.f_mm)};}
+
+// ══════════════════════════════════════════════════
+// DIRECCIÓN MANUAL — UI y canvas de ángulo
+// ══════════════════════════════════════════════════
+function onFlightDirChange(){
+  const dir = document.getElementById('flight_dir').value;
+  const panel = document.getElementById('manualAnglePanel');
+  if(panel) panel.style.display = dir==='manual' ? 'flex' : 'none';
+  drawAngleCanvas();
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+function getManualAngle(){
+  return +(document.getElementById('flight_angle')?.value||0);
+}
+
+function onAngleInput(){
+  let v = +document.getElementById('flight_angle').value;
+  v = ((v%180)+180)%180; // normalizar 0-179
+  document.getElementById('flight_angle').value = v;
+  document.getElementById('flight_angle_slider').value = v;
+  // actualizar nota doble grilla
+  const n2 = document.getElementById('angleNote2');
+  if(n2) n2.textContent = ((v+90)%180);
+  drawAngleCanvas();
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+function onAngleSlider(){
+  const v = +document.getElementById('flight_angle_slider').value;
+  document.getElementById('flight_angle').value = v;
+  onAngleInput();
+}
+
+function stepAngle(dir){
+  const el = document.getElementById('flight_angle');
+  let v = (+el.value + dir + 180) % 180;
+  el.value = v;
+  onAngleInput();
+}
+
+// Canvas circular indicador de ángulo
+function drawAngleCanvas(){
+  const cv = document.getElementById('angleCanvas');
+  if(!cv) return;
+  const ctx2 = cv.getContext('2d');
+  const W = cv.width, H = cv.height, cx = W/2, cy = H/2, r = W/2-4;
+  const ang = getManualAngle();
+  const rad = (ang-90) * Math.PI/180; // 0°=Este → arriba=Norte en canvas
+
+  ctx2.clearRect(0,0,W,H);
+
+  // Fondo
+  ctx2.beginPath(); ctx2.arc(cx,cy,r,0,Math.PI*2);
+  ctx2.fillStyle='#0d1a2e'; ctx2.fill();
+  ctx2.strokeStyle='#1e3a5f'; ctx2.lineWidth=1; ctx2.stroke();
+
+  // Marcas cardinales
+  ctx2.fillStyle='#2a4a6f'; ctx2.font='7px monospace'; ctx2.textAlign='center';
+  ctx2.fillText('N',cx,cy-r+10);
+  ctx2.fillText('S',cx,cy+r-3);
+  ctx2.fillText('E',cx+r-5,cy+3);
+  ctx2.fillText('O',cx-r+5,cy+3);
+
+  // Línea de pasada (bidireccional)
+  const lx = Math.cos(rad)*r*0.8, ly = Math.sin(rad)*r*0.8;
+  ctx2.beginPath();
+  ctx2.moveTo(cx-lx, cy-ly);
+  ctx2.lineTo(cx+lx, cy+ly);
+  ctx2.strokeStyle='#00e5ff'; ctx2.lineWidth=2;
+  ctx2.stroke();
+
+  // Punto central
+  ctx2.beginPath(); ctx2.arc(cx,cy,3,0,Math.PI*2);
+  ctx2.fillStyle='#00e5ff'; ctx2.fill();
+
+  // Flechita de dirección
+  ctx2.beginPath();
+  ctx2.moveTo(cx+lx, cy+ly);
+  ctx2.lineTo(cx+lx - Math.cos(rad-0.4)*8, cy+ly - Math.sin(rad-0.4)*8);
+  ctx2.lineTo(cx+lx - Math.cos(rad+0.4)*8, cy+ly - Math.sin(rad+0.4)*8);
+  ctx2.closePath();
+  ctx2.fillStyle='#00e5ff'; ctx2.fill();
+}
+
+// Arrastrar el canvas para cambiar el ángulo
+let _draggingAngle = false;
+function startAngleDrag(e){
+  _draggingAngle = true;
+  updateAngleFromEvent(e);
+  const up = ()=>{ _draggingAngle=false; document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); document.removeEventListener('touchmove',mv); document.removeEventListener('touchend',up); };
+  const mv = (e2)=>{ if(_draggingAngle) updateAngleFromEvent(e2); };
+  document.addEventListener('mousemove',mv);
+  document.addEventListener('mouseup',up);
+  document.addEventListener('touchmove',mv,{passive:false});
+  document.addEventListener('touchend',up);
+}
+function updateAngleFromEvent(e){
+  const cv = document.getElementById('angleCanvas');
+  if(!cv) return;
+  const rect = cv.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const dx = clientX - rect.left - cv.width/2;
+  const dy = clientY - rect.top  - cv.height/2;
+  // atan2 desde el norte, en sentido horario
+  let deg = Math.round(Math.atan2(dx,-dy) * 180/Math.PI);
+  deg = ((deg%180)+180)%180;
+  document.getElementById('flight_angle').value = deg;
+  document.getElementById('flight_angle_slider').value = deg;
+  const n2 = document.getElementById('angleNote2');
+  if(n2) n2.textContent = ((deg+90)%180);
+  drawAngleCanvas();
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+  if(e.touches) e.preventDefault();
+}
+
+// ══════════════════════════════════════════════════
+// NÚCLEO: GRILLA ROTADA A ÁNGULO ARBITRARIO
+// Algoritmo:
+//   1. Proyectar el polígono a metros (plano local centrado en centroide)
+//   2. Rotar los vértices por -angleDeg
+//   3. Generar pasadas horizontales en el sistema rotado
+//   4. Rotar los waypoints de vuelta por +angleDeg
+//   5. Convertir de metros a lat/lng
+// ══════════════════════════════════════════════════
+function makeAngledGrid(angleDeg, stepAlong, stepCross, vel, gimb, workPoly, photoMode){
+  const R = 6371000, toRad = Math.PI/180;
+  const n = workPoly.length;
+
+  // Centroide
+  const cLat = workPoly.reduce((s,p)=>s+p.lat,0)/n;
+  const cLng = workPoly.reduce((s,p)=>s+p.lng,0)/n;
+  const cosLat = Math.cos(cLat*toRad);
+
+  // Proyección lat/lng → metros locales
+  const toM = p => ({
+    x: (p.lng-cLng)*toRad*R*cosLat,
+    y: (p.lat-cLat)*toRad*R
+  });
+  // Metros locales → lat/lng
+  const toLl = (x,y) => ({
+    lat: cLat + y/(R*toRad),
+    lng: cLng + x/(R*cosLat*toRad)
+  });
+
+  // Rotar punto 2D
+  const rot = (p, a) => {
+    const c=Math.cos(a), s=Math.sin(a);
+    return {x: p.x*c-p.y*s, y: p.x*s+p.y*c};
+  };
+
+  const aRad = angleDeg * toRad;
+
+  // Polígono en metros, rotado por -aRad
+  const polyM = workPoly.map(p => rot(toM(p), -aRad));
+
+  // Bounding box del polígono rotado
+  const minX = Math.min(...polyM.map(p=>p.x));
+  const maxX = Math.max(...polyM.map(p=>p.x));
+  const minY = Math.min(...polyM.map(p=>p.y));
+  const maxY = Math.max(...polyM.map(p=>p.y));
+
+  // Intersección de línea horizontal y=yVal con el polígono rotado
+  function hIntersect(yVal){
+    const xs=[];
+    for(let i=0;i<n;i++){
+      const j=(i+1)%n;
+      const ay=polyM[i].y, ax=polyM[i].x;
+      const by=polyM[j].y, bx=polyM[j].x;
+      if((ay-yVal)*(by-yVal)>0) continue;
+      if(Math.abs(by-ay)<1e-6) continue;
+      const t=(yVal-ay)/(by-ay);
+      if(t<-1e-9||t>1+1e-9) continue;
+      xs.push(ax+(bx-ax)*t);
+    }
+    return xs.sort((a,b)=>a-b);
+  }
+
+  // Heading real del drone en el ángulo dado
+  // angleDeg=0 → vuela E-W → heading 90/270
+  // angleDeg=90 → vuela N-S → heading 0/180
+  const hdgA = (angleDeg+90)%360;        // dirección "hacia adelante"
+  const hdgB = (angleDeg+270)%360;       // dirección "hacia atrás"
+
+  const wps = [];
+  let si = 0;
+  for(let y=minY; y<=maxY+stepCross*0.5; y+=stepCross){
+    const xs = hIntersect(y);
+    if(xs.length<2) continue;
+    const xStart = xs[0], xEnd = xs[xs.length-1];
+    const stripLen = xEnd - xStart;
+    if(stripLen < 0.1) continue;
+
+    const hdg = (si%2===0) ? hdgA : hdgB;
+    const goRight = (si%2===0);
+
+    if(photoMode){
+      // Modo A: puntos de foto a lo largo de la pasada
+      const pts = [xStart];
+      let x = xStart+stepAlong;
+      while(x < xEnd-stepAlong*0.5){ pts.push(x); x+=stepAlong; }
+      pts.push(xEnd);
+      const ordered = goRight ? pts : [...pts].reverse();
+      ordered.forEach(x=>{
+        const rotBack = rot({x,y}, aRad);
+        const ll = toLl(rotBack.x, rotBack.y);
+        wps.push({lat:ll.lat, lng:ll.lng, heading:Math.round(hdg), vel, gimbal:gimb});
+      });
+    } else {
+      // Modo B: solo extremos de pasada
+      const x1 = goRight ? xStart : xEnd;
+      const x2 = goRight ? xEnd   : xStart;
+      const r1 = rot({x:x1,y}, aRad); const ll1 = toLl(r1.x,r1.y);
+      const r2 = rot({x:x2,y}, aRad); const ll2 = toLl(r2.x,r2.y);
+      wps.push({lat:ll1.lat,lng:ll1.lng,heading:Math.round(hdg),vel,gimbal:gimb,isStripStart:true});
+      wps.push({lat:ll2.lat,lng:ll2.lng,heading:Math.round(hdg),vel,gimbal:gimb,isStripEnd:true});
+    }
+    si++;
+  }
+  return wps;
+}
+
+// Obtiene el ángulo efectivo según el selector
+function getEffectiveAngle(workPoly){
+  const dir = document.getElementById('flight_dir').value;
+  if(dir==='manual') return getManualAngle();
+  if(dir==='ns') return 90;   // pasadas N-S = ángulo 90°
+  if(dir==='ew') return 0;    // pasadas E-W = ángulo 0°
+  // auto: elegir según el lado más largo del bounding box
+  const R=6371000, toRad=Math.PI/180;
+  const bnds = polygonBounds(workPoly);
+  const latMid=(bnds.minLat+bnds.maxLat)/2;
+  const wEW = haversine(latMid,bnds.minLng,latMid,bnds.maxLng);
+  const hNS = haversine(bnds.minLat,(bnds.minLng+bnds.maxLng)/2,bnds.maxLat,(bnds.minLng+bnds.maxLng)/2);
+  return hNS < wEW ? 0 : 90; // si es más alto que ancho → N-S (90°), si no → E-W (0°)
+}
+
+function generateWaypoints(){
+  if(polyPoints.length<3) return[];
+  const workPoly=getWorkPoly();
+  const h   =+document.getElementById('altura').value;
+  const vel =+document.getElementById('velocidad').value;
+  const olF =+document.getElementById('overlap_f').value/100;
+  const olL =+document.getElementById('overlap_l').value/100;
+  const gimb=+document.getElementById('gimbal').value;
+  const dbl =document.getElementById('double_grid').checked;
+  const fp  =calcFootprint(h);
+  const stepAlong=fp.fh*(1-olF);
+  const stepCross=fp.fw*(1-olL);
+
+  const angle = getEffectiveAngle(workPoly);
+  let wps = makeAngledGrid(angle, stepAlong, stepCross, vel, gimb, workPoly, true);
+  if(dbl) wps = wps.concat(makeAngledGrid((angle+90)%180, stepAlong, stepCross, vel, gimb, workPoly, true));
+  return wps;
+}
+
+// ══════════════════════════════════════════════════
+// MODO B: Solo waypoints en extremos de pasadas (cambios de dirección)
+// ══════════════════════════════════════════════════
+function generateRouteWaypoints(){
+  if(polyPoints.length<3) return[];
+  const workPoly=getWorkPoly();
+  const h   =+document.getElementById('altura').value;
+  const vel =+document.getElementById('velocidad').value;
+  const olF =+document.getElementById('overlap_f').value/100;
+  const olL =+document.getElementById('overlap_l').value/100;
+  const gimb=+document.getElementById('gimbal').value;
+  const dbl =document.getElementById('double_grid').checked;
+  const fp  =calcFootprint(h);
+  const stepAlong=fp.fh*(1-olF);
+  const stepCross=fp.fw*(1-olL);
+
+  const angle = getEffectiveAngle(workPoly);
+  let wps = makeAngledGrid(angle, stepAlong, stepCross, vel, gimb, workPoly, false);
+  if(dbl) wps = wps.concat(makeAngledGrid((angle+90)%180, stepAlong, stepCross, vel, gimb, workPoly, false));
+  // Eliminar waypoints consecutivos con coordenadas idénticas
+  let deduped=wps.filter((w,i)=>{
+    if(i===0) return true;
+    return !(Math.abs(w.lat-wps[i-1].lat)<1e-8 && Math.abs(w.lng-wps[i-1].lng)<1e-8);
+  });
+
+  // ── Punto de vuelta: reemplazar [fin_pasadaA, ini_pasadaB] por 1 punto central ──
+  // Usa las marcas isStripEnd / isStripStart para identificar exactamente
+  // los pares de transición entre pasadas, independientemente del índice.
+  const turnMidEl = document.getElementById('turn_midpoint');
+  const turnMid   = turnMidEl ? turnMidEl.checked : false;
+
+  if(turnMid && deduped.length >= 4){
+    const withTurn = [];
+    let i = 0;
+    while(i < deduped.length){
+      const w = deduped[i];
+      // ¿Es el fin de una pasada y la siguiente es el inicio de otra?
+      if(w.isStripEnd && i < deduped.length-1 && deduped[i+1].isStripStart){
+        const finA = w;
+        const iniB = deduped[i+1];
+        // Conservar finA e iniB, insertar punto medio entre ellos
+        withTurn.push(finA);
+        withTurn.push({
+          lat:    (finA.lat + iniB.lat) / 2,
+          lng:    (finA.lng + iniB.lng) / 2,
+          heading: iniB.heading,
+          vel:    finA.vel,
+          gimbal: finA.gimbal,
+          isTurnPoint: true
+        });
+        withTurn.push(iniB);
+        i += 2; // consumir finA e iniB (ya los pusheamos)
+      } else {
+        withTurn.push(w);
+        i++;
+      }
+    }
+    deduped = withTurn;
+  }
+
+  // ── Subdivisión de tramos largos ──────────────────────────────────────────
+  // DJI Fly usa una spline Catmull-Rom entre waypoints, generando curvas
+  // que se alejan de la línea recta en tramos largos. Al insertar waypoints
+  // intermedios cada N metros, forzamos que la spline permanezca muy cerca
+  // de la línea recta, preservando el traslape y la cobertura planificados.
+  const subdivOnEl = document.getElementById('subdiv_on');
+  const subdivOn   = subdivOnEl ? subdivOnEl.checked : true;
+  const maxDistEl  = document.getElementById('max_seg_dist');
+  const maxDist    = maxDistEl ? +maxDistEl.value : 50; // metros
+
+  if(subdivOn && maxDist > 0 && deduped.length >= 2){
+    const subdivided = [];
+
+    for(let i=0; i<deduped.length; i++){
+      subdivided.push(deduped[i]);
+      if(i < deduped.length - 1){
+        const A = deduped[i];
+        const B = deduped[i+1];
+
+        // NO subdividir solo el segmento de transición entre pasadas:
+        // - finA → isTurnPoint (punto de vuelta)
+        // - isTurnPoint → iniB
+        // - finA → iniB (transición directa sin punto de vuelta activado)
+        const esTransicion = A.isTurnPoint || B.isTurnPoint ||
+                             (A.isStripEnd && B.isStripStart);
+        if(esTransicion) continue;
+        // Dentro de pasadas (de subdiv a subdiv, o de ini a subdiv, etc.) SÍ subdividir
+
+        // Solo subdividir tramos dentro de pasadas
+        const segLen = haversine(A.lat, A.lng, B.lat, B.lng);
+        if(segLen > maxDist){
+          const nSeg = Math.ceil(segLen / maxDist);
+          for(let k=1; k<nSeg; k++){
+            const t = k / nSeg;
+            subdivided.push({
+              lat:    A.lat + t * (B.lat - A.lat),
+              lng:    A.lng + t * (B.lng - A.lng),
+              heading: A.heading,
+              vel:    A.vel,
+              gimbal: A.gimbal
+            });
+          }
+        }
+      }
+    }
+    deduped = subdivided;
+  }
+
+  return deduped;
+}
+
+// ══════════════════════════════════════════════════
+// STATS
+// ══════════════════════════════════════════════════
+function updateStats(){
+  if(polyPoints.length<3){clearStats();return;}
+  const h=+document.getElementById('altura').value||80;
+  const vel=+document.getElementById('velocidad').value||5;
+  const olF=+document.getElementById('overlap_f').value/100;
+  const olL=+document.getElementById('overlap_l').value/100;
+  const gsd=calcGSD(h);
+  const area=polygonAreaM2(polyPoints)/10000;
+  const fp=calcFootprint(h);
+  const sep=fp.fw*(1-olL);          // separación entre pasadas (m)
+  const stepAlong=fp.fh*(1-olF);   // distancia entre fotos (m)
+  const interval=stepAlong/vel;
+
+  // Modo A: todos los puntos de foto son waypoints
+  // Modo B: solo los extremos de cada pasada son waypoints
+  const wpsA=generateWaypoints();
+  const wpsB=generateRouteWaypoints();
+  const wpsC=generatePerimWaypoints();
+  const _turnMidOn = document.getElementById('turn_midpoint')?.checked;
+  const wpsB_kmz = _turnMidOn
+    ? wpsB.filter(w => !w.isStripEnd && !w.isStripStart)
+    : wpsB;
+  const activeWps = misionMode==='A' ? wpsA : misionMode==='C' ? wpsC : wpsB_kmz;
+  // Actualizar contador perimetral si está en modo C
+  if(misionMode==='C'){ const lbl=document.getElementById('perimWpCount'); if(lbl) lbl.textContent=wpsC.length; }
+
+  let dist=0;
+  for(let i=1;i<wpsA.length;i++) dist+=haversine(wpsA[i-1].lat,wpsA[i-1].lng,wpsA[i].lat,wpsA[i].lng);
+  dist/=1000;
+  const tiempo=(dist*1000/vel)/60;
+
+  // Fotos estimadas: en ambos modos se calculan por distancia/intervalo
+  const fotosEst=Math.round(dist*1000/stepAlong);
+
+  document.getElementById('st_gsd').textContent=gsd.toFixed(1);
+  document.getElementById('st_gsd').className='sb-val'+(gsd<3?' ok':gsd<7?'':' warn');
+  document.getElementById('st_area').textContent=area.toFixed(2);
+  document.getElementById('st_wps').textContent=activeWps.length;
+  // Colorear waypoints según límite del RC2
+  const wpEl=document.getElementById('st_wps');
+  wpEl.className='sb-val'+(activeWps.length>199?' err':activeWps.length>150?' warn':' ok');
+  document.getElementById('st_dist').textContent=dist.toFixed(2);
+  document.getElementById('st_fotos').textContent=fotosEst;
+  document.getElementById('st_tiempo').textContent=tiempo.toFixed(1);
+  document.getElementById('st_sep').textContent=sep.toFixed(1);
+  document.getElementById('st_interval').textContent=interval.toFixed(2);
+  // Número de pasadas (strips) — contar cambios de heading en los WPs
+  const pasadas = misionMode==='C' ? polyPoints.length
+    : activeWps.reduce((acc,w,i,arr)=>{
+        if(i===0) return 1;
+        return acc + (w.heading!==arr[i-1].heading ? 1 : 0);
+      }, 0);
+  document.getElementById('st_pasadas').textContent=pasadas;
+
+  // Advertencia de waypoints en modo A
+  const warn=document.getElementById('wpsWarn');
+  if(warn) warn.style.display=(misionMode==='A'&&wpsA.length>199)?'inline':'none';
+}
+function clearStats(){
+  ['st_gsd','st_area','st_wps','st_dist','st_fotos','st_tiempo','st_pasadas'].forEach(id=>document.getElementById(id).textContent='—');
+  document.getElementById('st_sep').textContent='—';
+  document.getElementById('st_interval').textContent='—';
+}
+
+// ══════════════════════════════════════════════════
+// KMZ EXPORT
+// ══════════════════════════════════════════════════
+async function exportKMZ(){
+  const _turnOn = document.getElementById('turn_midpoint')?.checked;
+  const wps = misionMode==='C' ? generatePerimWaypoints()
+    : (misionMode==='A' ? generateWaypoints() : generateRouteWaypoints())
+      .filter(w => !_turnOn || (!w.isStripEnd && !w.isStripStart));
+  if(!wps.length){alert('Necesitas un polígono con al menos 3 vértices.');return;}
+
+  if(misionMode==='A' && wps.length>199){
+    const ok=confirm(`⚠ Esta misión tiene ${wps.length} waypoints.\n\nEl RC 2 puede crashear con más de ~199 WP con acciones de foto.\n\n¿Deseas exportar de todas formas o cambiar a Modo B (Solo ruta)?`);
+    if(!ok) return;
+  }
+
+  const btn=document.getElementById('btnKMZ');
+  btn.disabled=true;btn.textContent='⏳ Generando...';
+  try{
+    const nombre=document.getElementById('mision_nombre').value||'mision';
+    const vel=+document.getElementById('velocidad').value;
+    const h=+document.getElementById('altura').value;
+    const tosh=+document.getElementById('takeoff_height').value;
+    const ts=Date.now().toString();
+
+    // ── Parámetros de trayectoria (straight line) ────────────────────────────
+    const stopAndShoot = misionMode==='A' &&
+      (document.getElementById('stop_and_shoot')?.checked ?? false);
+    const useStraight = document.getElementById('straight_line')?.checked ?? true;
+    const turnMode_t  = useStraight ? 'coordinateTurn' : 'toPointAndPassWithContinuityCurvature';
+    // Si stop_and_shoot está activo, dampDist debe ser 0 (drone se detiene completamente)
+    const dampDist_t  = (useStraight || stopAndShoot) ? '0.2' : '0';
+    const straightVal = useStraight ? '1' : '0';
+
+    const mCfg=`
+  <wpml:missionConfig>
+    <wpml:flyToWaylineMode>safely</wpml:flyToWaylineMode>
+    <wpml:finishAction>goHome</wpml:finishAction>
+    <wpml:exitOnRCLost>executeLostAction</wpml:exitOnRCLost>
+    <wpml:executeRCLostAction>goBack</wpml:executeRCLostAction>
+    <wpml:takeOffSecurityHeight>${tosh}</wpml:takeOffSecurityHeight>
+    <wpml:globalTransitionalSpeed>${vel.toFixed(1)}</wpml:globalTransitionalSpeed>
+    <wpml:droneInfo>
+      <wpml:droneEnumValue>0</wpml:droneEnumValue>
+      <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
+    </wpml:droneInfo>
+  </wpml:missionConfig>`;
+
+    const pm_t=wps.map((w,i)=>`
+    <Placemark>
+      <Point><coordinates>${w.lng.toFixed(8)},${w.lat.toFixed(8)}</coordinates></Point>
+      <wpml:index>${i}</wpml:index>
+      <wpml:executeHeight>${h.toFixed(2)}</wpml:executeHeight>
+      <wpml:waypointSpeed>${w.vel.toFixed(2)}</wpml:waypointSpeed>
+      <wpml:waypointHeadingParam>
+        <wpml:waypointHeadingMode>smoothTransition</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingAngle>${w.heading}</wpml:waypointHeadingAngle>
+        <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+        <wpml:waypointHeadingAngleEnable>${i===0?1:0}</wpml:waypointHeadingAngleEnable>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:waypointHeadingParam>
+      <wpml:waypointTurnParam>
+        <wpml:waypointTurnMode>${turnMode_t}</wpml:waypointTurnMode>
+        <wpml:waypointTurnDampingDist>${dampDist_t}</wpml:waypointTurnDampingDist>
+      </wpml:waypointTurnParam>
+      <wpml:useStraightLine>${straightVal}</wpml:useStraightLine>
+    </Placemark>`).join('');
+
+    const tpl=`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">
+  <Document>
+    <wpml:author>AeroPlan_Air3S_v2</wpml:author>
+    <wpml:createTime>${ts}</wpml:createTime>
+    <wpml:updateTime>${ts}</wpml:updateTime>
+    ${mCfg}
+  </Document>
+</kml>`;
+
+    // Acción takePhoto (experimental) — se ejecuta al llegar al WP
+    const takePhotoBlock=(w,i)=>`
+      <wpml:actionGroup>
+        <wpml:actionGroupId>${(i*2)+1}</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>${(i*2)+1}</wpml:actionId>
+          <wpml:actionActuatorFunc>gimbalRotate</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:gimbalHeadingYawBase>aircraft</wpml:gimbalHeadingYawBase>
+            <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
+            <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
+            <wpml:gimbalPitchRotateAngle>${w.gimbal.toFixed(1)}</wpml:gimbalPitchRotateAngle>
+            <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
+            <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
+            <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+            <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
+            <wpml:gimbalRotateTimeEnable>0</wpml:gimbalRotateTimeEnable>
+            <wpml:gimbalRotateTime>0</wpml:gimbalRotateTime>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+        <wpml:action>
+          <wpml:actionId>${(i*2)+2}</wpml:actionId>
+          <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:fileSuffix>wp${i}</wpml:fileSuffix>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+      </wpml:actionGroup>`;
+
+    // accionWP: diferencia modo A/B y WP0 vs resto
+    // Modo B WP0: gimbalRotate + TurnMode=Stop (drone se detiene al inicio)
+    // Modo B WP1+: gimbalEvenlyRotate + TurnMode=Pass (vuelo continuo)
+    // Modo A normal: gimbalEvenlyRotate en todos
+    // Modo A stop_and_shoot: gimbalRotate + takePhoto en secuencia
+    const gimbalRotateBlock=(w,i)=>`
+      <wpml:actionGroup>
+        <wpml:actionGroupId>${i+1}</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>parallel</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>${i+1}</wpml:actionId>
+          <wpml:actionActuatorFunc>gimbalRotate</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:gimbalHeadingYawBase>aircraft</wpml:gimbalHeadingYawBase>
+            <wpml:gimbalRotateMode>absoluteAngle</wpml:gimbalRotateMode>
+            <wpml:gimbalPitchRotateEnable>1</wpml:gimbalPitchRotateEnable>
+            <wpml:gimbalPitchRotateAngle>${w.gimbal.toFixed(1)}</wpml:gimbalPitchRotateAngle>
+            <wpml:gimbalRollRotateEnable>0</wpml:gimbalRollRotateEnable>
+            <wpml:gimbalRollRotateAngle>0</wpml:gimbalRollRotateAngle>
+            <wpml:gimbalYawRotateEnable>0</wpml:gimbalYawRotateEnable>
+            <wpml:gimbalYawRotateAngle>0</wpml:gimbalYawRotateAngle>
+            <wpml:gimbalRotateTimeEnable>0</wpml:gimbalRotateTimeEnable>
+            <wpml:gimbalRotateTime>0</wpml:gimbalRotateTime>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+      </wpml:actionGroup>`;
+    const gimbalEvenlyBlock=(w,i)=>`
+      <wpml:actionGroup>
+        <wpml:actionGroupId>${i+1}</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>parallel</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>${i+1}</wpml:actionId>
+          <wpml:actionActuatorFunc>gimbalEvenlyRotate</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:gimbalPitchRotateAngle>${w.gimbal.toFixed(1)}</wpml:gimbalPitchRotateAngle>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+      </wpml:actionGroup>`;
+    const accionWP=(w,i)=>{
+      if(misionMode==='B')
+        return i===0 ? gimbalRotateBlock(w,i) : gimbalEvenlyBlock(w,i);
+      if(stopAndShoot)
+        return takePhotoBlock(w,i);
+      return gimbalEvenlyBlock(w,i);
+    };
+
+    // TurnMode según modo y opciones:
+    // Modo A normal     → coordinateTurn (straight) o Pass (curvo)
+    // Modo A stop&shoot → toPointAndStopWithDiscontinuityCurvature (detención total)
+    // Modo B WP0        → Stop; resto → Pass o coordinateTurn
+    const turnMode=(i)=>{
+      if(stopAndShoot) return 'toPointAndStopWithDiscontinuityCurvature';
+      if(useStraight)  return 'coordinateTurn';
+      if(misionMode==='B' && i===0) return 'toPointAndStopWithContinuityCurvature';
+      return 'toPointAndPassWithContinuityCurvature';
+    };
+
+    const pm_w=wps.map((w,i)=>`
+    <Placemark>
+      <Point><coordinates>${w.lng.toFixed(8)},${w.lat.toFixed(8)}</coordinates></Point>
+      <wpml:index>${i}</wpml:index>
+      <wpml:executeHeight>${h.toFixed(2)}</wpml:executeHeight>
+      <wpml:waypointSpeed>${w.vel.toFixed(2)}</wpml:waypointSpeed>
+      <wpml:waypointHeadingParam>
+        <wpml:waypointHeadingMode>smoothTransition</wpml:waypointHeadingMode>
+        <wpml:waypointHeadingAngle>${w.heading}</wpml:waypointHeadingAngle>
+        <wpml:waypointPoiPoint>0.000000,0.000000,0.000000</wpml:waypointPoiPoint>
+        <wpml:waypointHeadingAngleEnable>${i===0?1:0}</wpml:waypointHeadingAngleEnable>
+        <wpml:waypointHeadingPathMode>followBadArc</wpml:waypointHeadingPathMode>
+      </wpml:waypointHeadingParam>
+      <wpml:waypointTurnParam>
+        <wpml:waypointTurnMode>${turnMode(i)}</wpml:waypointTurnMode>
+        <wpml:waypointTurnDampingDist>${dampDist_t}</wpml:waypointTurnDampingDist>
+      </wpml:waypointTurnParam>
+      <wpml:useStraightLine>${straightVal}</wpml:useStraightLine>
+      ${accionWP(w,i)}
+    </Placemark>`).join('');
+
+    const wpl=`<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:wpml="http://www.dji.com/wpmz/1.0.2">
+  <Document>
+    ${mCfg}
+    <Folder>
+      <wpml:templateId>0</wpml:templateId>
+      <wpml:executeHeightMode>relativeToStartPoint</wpml:executeHeightMode>
+      <wpml:waylineId>0</wpml:waylineId>
+      <wpml:distance>0</wpml:distance>
+      <wpml:duration>0</wpml:duration>
+      <wpml:autoFlightSpeed>${vel.toFixed(1)}</wpml:autoFlightSpeed>
+      ${pm_w}
+    </Folder>
+  </Document>
+</kml>`;
+
+    const zip=new JSZip();
+    zip.folder('wpmz').file('template.kml',tpl);
+    zip.folder('wpmz').file('waylines.wpml',wpl);
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+    const a=document.createElement('a');
+    const sufijo=misionMode==='B'?'_ruta':'_fotos';
+    a.href=URL.createObjectURL(blob);a.download=nombre+sufijo+'.kmz';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+  }catch(e){alert('Error generando KMZ: '+e.message);}
+  btn.disabled=false;btn.textContent='⬇ Descargar KMZ — DJI Air 3S';
+}
+
+// ══════════════════════════════════════════════════
+// EXPORTAR KML — Google Earth
+// ══════════════════════════════════════════════════
+function exportKML(){
+  if(polyPoints.length<3){alert('Necesitas un polígono.');return;}
+  const nombre = document.getElementById('mision_nombre').value||'mision';
+  const h      = +document.getElementById('altura').value;
+  const _turnOnKml = document.getElementById('turn_midpoint')?.checked;
+  const wps = misionMode==='C' ? generatePerimWaypoints()
+    : (misionMode==='A' ? generateWaypoints() : generateRouteWaypoints())
+      .filter(w => !_turnOnKml || (!w.isStripEnd && !w.isStripStart));
+
+  // ── Paleta de colores por pasada ──────────────────────────────────────────
+  // KML usa AABBGGRR (alpha, blue, green, red en hex)
+  const COLORS = ['ff00e5ff','ff00b8cc','ffffb800','ff22c55e','ffa855f7','ffef4444'];
+  
+  // Detectar cambios de pasada por salto de heading o por pares (modo B)
+  if(!wps.length){ alert('No hay waypoints para exportar.'); return; }
+  let strips = [];
+  let current = [wps[0]];
+  for(let i=1;i<wps.length;i++){
+    const prevHdg = wps[i-1].heading;
+    const currHdg = wps[i].heading;
+    // Nueva pasada cuando cambia el heading
+    if(currHdg !== prevHdg){
+      strips.push(current);
+      current = [wps[i]];
+    } else {
+      current.push(wps[i]);
+    }
+  }
+  strips.push(current);
+
+  // ── Estilos por color ──────────────────────────────────────────────────────
+  let stylesKML = COLORS.map((c,i)=>`
+  <Style id="linea${i}">
+    <LineStyle><color>${c}</color><width>2</width></LineStyle>
+  </Style>
+  <Style id="wpt${i}">
+    <IconStyle>
+      <color>${c}</color>
+      <scale>0.6</scale>
+      <Icon><href>http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>
+    </IconStyle>
+    <LabelStyle><scale>0.5</scale></LabelStyle>
+  </Style>`).join('');
+
+  // ── Polígono de área ───────────────────────────────────────────────────────
+  const polyCoords = [...polyPoints, polyPoints[0]]
+    .map(p=>`${p.lng.toFixed(8)},${p.lat.toFixed(8)},${h}`)
+    .join('\n          ');
+
+  const polyPlacemark = `
+  <Placemark>
+    <name>Área de vuelo</name>
+    <Style>
+      <LineStyle><color>ff00e5ff</color><width>2</width></LineStyle>
+      <PolyStyle><color>1a00e5ff</color></PolyStyle>
+    </Style>
+    <Polygon>
+      <extrude>0</extrude>
+      <altitudeMode>relativeToGround</altitudeMode>
+      <outerBoundaryIs><LinearRing><coordinates>
+          ${polyCoords}
+      </coordinates></LinearRing></outerBoundaryIs>
+    </Polygon>
+  </Placemark>`;
+
+  // ── Pasadas como LineStrings ───────────────────────────────────────────────
+  let stripPlacemarks = strips.map((strip,si)=>{
+    const color = COLORS[si % COLORS.length];
+    const colorIdx = si % COLORS.length;
+    const lineCoords = strip
+      .map(w=>`${w.lng.toFixed(8)},${w.lat.toFixed(8)},${h}`)
+      .join('\n          ');
+    const hdgLabel = strip[0].heading === 90 ? 'E→O' :
+                     strip[0].heading === -90 ? 'O→E' :
+                     strip[0].heading === 0   ? 'N→S' : 'S→N';
+    return `
+  <Placemark>
+    <name>Pasada ${si+1} (${hdgLabel})</name>
+    <styleUrl>#linea${colorIdx}</styleUrl>
+    <LineString>
+      <altitudeMode>relativeToGround</altitudeMode>
+      <coordinates>
+          ${lineCoords}
+      </coordinates>
+    </LineString>
+  </Placemark>`;
+  }).join('');
+
+  // ── Waypoints como placemarks ──────────────────────────────────────────────
+  // Solo mostrar inicio y fin de cada pasada para no saturar GE
+  let wpPlacemarks = strips.map((strip,si)=>{
+    const colorIdx = si % COLORS.length;
+    const first = strip[0];
+    const last  = strip[strip.length-1];
+    const markers = [
+      {w:first, lbl:`P${si+1} inicio`},
+      ...(strip.length>1 ? [{w:last, lbl:`P${si+1} fin`}] : [])
+    ];
+    return markers.map(({w,lbl})=>`
+  <Placemark>
+    <name>${lbl}</name>
+    <styleUrl>#wpt${colorIdx}</styleUrl>
+    <Point>
+      <altitudeMode>relativeToGround</altitudeMode>
+      <coordinates>${w.lng.toFixed(8)},${w.lat.toFixed(8)},${h}</coordinates>
+    </Point>
+  </Placemark>`).join('');
+  }).join('');
+
+  // ── Ruta completa (línea conectora entre pasadas) ─────────────────────────
+  const rutaCoords = wps
+    .map(w=>`${w.lng.toFixed(8)},${w.lat.toFixed(8)},${h}`)
+    .join('\n          ');
+
+  const rutaPlacemark = `
+  <Placemark>
+    <name>Ruta completa</name>
+    <Style><LineStyle><color>80ffffff</color><width>1</width></LineStyle></Style>
+    <LineString>
+      <altitudeMode>relativeToGround</altitudeMode>
+      <coordinates>
+          ${rutaCoords}
+      </coordinates>
+    </LineString>
+  </Placemark>`;
+
+  // ── Ensamble del KML ──────────────────────────────────────────────────────
+  const ts = new Date().toISOString();
+  const modoLabel = misionMode==='A' ? 'Foto por waypoint' : 'Solo ruta + intervalo';
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+  <name>${nombre}</name>
+  <description>
+    Misión: ${nombre}
+    Modo: ${modoLabel}
+    Altura AGL: ${h} m
+    Waypoints: ${wps.length}
+    Pasadas: ${strips.length}
+    Generado: ${ts}
+  </description>
+  ${stylesKML}
+
+  <Folder>
+    <name>Área</name>
+    ${polyPlacemark}
+  </Folder>
+
+  <Folder>
+    <name>Ruta de vuelo</name>
+    ${rutaPlacemark}
+    ${stripPlacemarks}
+  </Folder>
+
+  <Folder>
+    <name>Waypoints (inicio/fin de pasada)</name>
+    ${wpPlacemarks}
+  </Folder>
+
+</Document>
+</kml>`;
+
+  const blob = new Blob([kml], {type:'application/vnd.google-earth.kml+xml'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nombre + '_GoogleEarth.kml';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+}
+
+// ══════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════
+function setStatus(type,txt){
+  document.getElementById('statusDot').className='status-dot '+type;
+  document.getElementById('statusTxt').textContent=txt;
+}
+function onCameraChange(){
+  const key = document.getElementById('camara')?.value || 'air3s_wide_12mp';
+  const prof = DRONE_DB[key];
+  if(!prof) return;
+
+  // Llenar campos del sensor
+  document.getElementById('f_mm').value  = prof.f_mm;
+  document.getElementById('sw_mm').value = prof.sw_mm;
+  document.getElementById('sh_mm').value = prof.sh_mm;
+  document.getElementById('res_w').value = prof.res_w;
+  document.getElementById('res_h').value = prof.res_h;
+  if(document.getElementById('min_interval'))
+    document.getElementById('min_interval').value = prof.min_interval_s;
+
+  // Actualizar chip informativo
+  const el = id => document.getElementById(id);
+  if(el('ciDrone'))  el('ciDrone').textContent  = prof.drone || '—';
+  if(el('ciCamera')) el('ciCamera').textContent = prof.camera || '—';
+  if(el('ciNote'))   el('ciNote').textContent   = prof.note   || '';
+  if(el('sensorBadge')) el('sensorBadge').textContent = prof.drone || '—';
+
+  // Megapíxeles calculados
+  const mpCalc = ((prof.res_w * prof.res_h) / 1e6).toFixed(1);
+  if(el('mp_display')) el('mp_display').value = mpCalc + ' MP';
+
+  // Aviso intervalo alta resolución
+  const iw = el('intervalWarning');
+  if(iw){
+    if(prof.min_interval_s >= 5){
+      iw.style.display = 'block';
+      iw.textContent = `⚠ Modo ${prof.mp}MP requiere intervalo mín. ${prof.min_interval_s}s en Timed Shot (DJI Fly). Ajusta el intervalo en Modo B si es necesario.`;
+    } else {
+      iw.style.display = 'none';
+    }
+  }
+
+  // Si es perfil "custom", no sobreescribir (el usuario lo edita)
+  if(key === 'custom') return;
+
+  if(polyPoints.length>=3){ updateStats(); if(gmap) drawGMapRoute(); if(demoMode) renderCanvas(); }
+}
+
+// Edición manual del sensor: marcar como "custom" en el select
+function onSensorManualEdit(){
+  // Recalcular MP display
+  const w = +document.getElementById('res_w').value || 0;
+  const h = +document.getElementById('res_h').value || 0;
+  const mpCalc = ((w*h)/1e6).toFixed(1);
+  const el = document.getElementById('mp_display');
+  if(el) el.value = mpCalc + ' MP';
+  if(polyPoints.length>=3){ updateStats(); if(gmap) drawGMapRoute(); if(demoMode) renderCanvas(); }
+}
+function onSubdivChange(){
+  // Actualizar label de distancia en la descripción
+  const dist = document.getElementById('max_seg_dist');
+  const lbl  = document.getElementById('subdivDistLabel');
+  if(lbl && dist) lbl.textContent = dist.value;
+  // Recalcular ruta
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+// ── Stepper: botones − / + para inputs numéricos ─────────────────────────────
+function step(id, delta){
+  const el = document.getElementById(id);
+  if(!el) return;
+  const min  = el.min  !== '' ? +el.min  : -Infinity;
+  const max  = el.max  !== '' ? +el.max  : Infinity;
+  const s    = el.step !== '' ? +el.step : 1;
+  const cur  = el.value !== '' ? +el.value : (delta > 0 ? min : max);
+  const next = Math.min(max, Math.max(min, Math.round((cur + delta * s) / s) * s));
+  // Redondear a los decimales del step para evitar floating point noise
+  const dec  = (s.toString().split('.')[1] || '').length;
+  el.value   = next.toFixed(dec);
+  el.dispatchEvent(new Event('input', {bubbles:true}));
+}
+
+function setupInputListeners(){
+  const recalcVelOnB = ['altura','overlap_f'];
+
+  ['altura','velocidad','overlap_f','overlap_l','gimbal','f_mm','sw_mm','sh_mm','res_w','res_h','flight_dir','double_grid','intervalo_seg','max_seg_dist','subdiv_on','turn_midpoint','poly_offset','flight_angle'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.addEventListener('input',()=>{
+      // Validación suave: si el campo está vacío o el valor no es un número válido,
+      // no calcular — esperar a que el usuario termine de escribir
+      if(el.type==='number'){
+        const v = +el.value;
+        const mn = el.min !== '' ? +el.min : -Infinity;
+        const mx = el.max !== '' ? +el.max : Infinity;
+        if(el.value==='' || isNaN(v) || v < mn || v > mx) return;
+      }
+      // En Modo B: si cambia altura u overlap_f, recalcular velocidad primero
+      if(misionMode==='B' && recalcVelOnB.includes(id)){
+        onIntervalChange();
+        return;
+      }
+      if(polyPoints.length>=3){
+        updateStats();
+        if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+        if(demoMode) renderCanvas();
+      }
+    });
+    // Al salir del campo (blur), corregir si el valor quedó fuera de rango
+    if(el.type==='number'){
+      el.addEventListener('blur',()=>{
+        if(el.value==='' || isNaN(+el.value)){
+          el.value = el.defaultValue || el.min || '0';
+          el.dispatchEvent(new Event('input',{bubbles:true}));
+        } else {
+          const mn = el.min !== '' ? +el.min : -Infinity;
+          const mx = el.max !== '' ? +el.max : Infinity;
+          const clamped = Math.min(mx, Math.max(mn, +el.value));
+          if(clamped !== +el.value){
+            el.value = clamped;
+            el.dispatchEvent(new Event('input',{bubbles:true}));
+          }
+        }
+      });
+    }
+  });
+}
+// ══════════════════════════════════════════════════
+// OFFSET DE POLÍGONO
+// ══════════════════════════════════════════════════
+
+// Calcula el polígono expandido/contraído N metros hacia afuera (offset>0) o adentro (offset<0)
+// Algoritmo: desplazar cada arista N metros en dirección perpendicular hacia afuera,
+// luego recalcular los vértices como intersección de aristas adyacentes desplazadas.
+function computeOffsetPoly(pts, offsetM){
+  if(Math.abs(offsetM) < 0.01) return pts;
+  const n = pts.length;
+  const R = 6371000, tr = Math.PI/180;
+
+  // Proyección plana local centrada en el centroide (metros)
+  const cLat = pts.reduce((s,p)=>s+p.lat,0)/n;
+  const cLng = pts.reduce((s,p)=>s+p.lng,0)/n;
+  const cosLat = Math.cos(cLat*tr);
+  const xy = pts.map(p=>({
+    x: (p.lng-cLng)*tr*R*cosLat,
+    y: (p.lat-cLat)*tr*R
+  }));
+
+  // Calcular área con signo (shoelace): positivo=CCW, negativo=CW
+  let area2=0;
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n;
+    area2+=xy[i].x*xy[j].y-xy[j].x*xy[i].y;
+  }
+  // offsetM>0 = expansión (afuera), offsetM<0 = contracción (adentro)
+  // Para CCW: normal izq = afuera → d positivo expande
+  // Para CW:  normal izq = adentro → invertir signo
+  const d = area2>=0 ? -offsetM : offsetM;
+
+  // Desplazar cada arista d metros en dirección perpendicular hacia afuera
+  const edges=[];
+  for(let i=0;i<n;i++){
+    const j=(i+1)%n;
+    const edx=xy[j].x-xy[i].x, edy=xy[j].y-xy[i].y;
+    const len=Math.sqrt(edx*edx+edy*edy);
+    if(len<1e-6){edges.push(null);continue;}
+    // Normal perpendicular izquierda (afuera para CCW)
+    const nx=-edy/len, ny=edx/len;
+    edges.push({
+      px:xy[i].x+nx*d, py:xy[i].y+ny*d,
+      dx:edx, dy:edy
+    });
+  }
+
+  // Nuevos vértices = intersección de aristas adyacentes desplazadas
+  const newXY=[];
+  for(let i=0;i<n;i++){
+    const e1=edges[i], e2=edges[(i+1)%n];
+    if(!e1||!e2){newXY.push(xy[(i+1)%n]);continue;}
+    const denom=e1.dx*e2.dy-e1.dy*e2.dx;
+    if(Math.abs(denom)<1e-10){
+      newXY.push({x:e2.px,y:e2.py});
+      continue;
+    }
+    const ddx=e2.px-e1.px, ddy=e2.py-e1.py;
+    const t=(ddx*e2.dy-ddy*e2.dx)/denom;
+    newXY.push({x:e1.px+t*e1.dx, y:e1.py+t*e1.dy});
+  }
+
+  // De vuelta a lat/lng
+  return newXY.map(p=>({
+    lat: cLat+p.y/(R*tr),
+    lng: cLng+p.x/(R*cosLat*tr)
+  }));
+}
+
+// Devuelve el polígono de trabajo (con offset aplicado)
+function getWorkPoly(){
+  if(polyPoints.length < 3) return polyPoints;
+  const offsetEl = document.getElementById('poly_offset');
+  const offsetM = offsetEl ? +offsetEl.value : 0;
+  if(Math.abs(offsetM) < 0.01) return polyPoints;
+  return computeOffsetPoly(polyPoints, offsetM);
+}
+
+function onOffsetChange(){
+  const offsetEl = document.getElementById('poly_offset');
+  const offsetM = +offsetEl.value;
+  const infoEl = document.getElementById('offsetInfo');
+  if(infoEl){
+    if(Math.abs(offsetM) > 0.01){
+      infoEl.style.display = 'block';
+      infoEl.textContent = offsetM > 0
+        ? `▲ +${offsetM} m — expansión hacia afuera del polígono.`
+        : `▼ ${offsetM} m — contracción hacia adentro del polígono.`;
+    } else {
+      infoEl.style.display = 'none';
+    }
+  }
+  if(polyPoints.length >= 3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+function setOffset(val){
+  const el = document.getElementById('poly_offset');
+  if(el){ el.value = val; onOffsetChange(); }
+}
+
+function resetOffset(){
+  const el = document.getElementById('poly_offset');
+  if(el){ el.value = 0; onOffsetChange(); }
+}
+
+// ══════════════════════════════════════════════════
+// IMPORTAR POLÍGONO DESDE ARCHIVO
+// ══════════════════════════════════════════════════
+let importedPoints = [];  // puntos leídos del archivo, pendientes de aplicar
+
+function openImportModal(){
+  importedPoints = [];
+  document.getElementById('importResult').style.display = 'none';
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('btnApplyImport').disabled = true;
+  document.getElementById('fileInput').value = '';
+  // Resetear zona de drop
+  const dz = document.getElementById('dropZone');
+  dz.style.borderColor = '';
+  dz.style.background = 'var(--bg)';
+  document.getElementById('importModal').classList.remove('hidden');
+}
+function closeImportModal(){
+  document.getElementById('importModal').classList.add('hidden');
+}
+function closeImportOutside(e){
+  if(e.target === document.getElementById('importModal')) closeImportModal();
+}
+
+// ─── Drag & Drop ────────────────────────────────────────────────────────────
+function onDragOver(e){
+  e.preventDefault();
+  const dz = document.getElementById('dropZone');
+  dz.style.borderColor = 'var(--acc)';
+  dz.style.background  = 'var(--acc-dim)';
+}
+function onDragLeave(e){
+  const dz = document.getElementById('dropZone');
+  dz.style.borderColor = '';
+  dz.style.background  = 'var(--bg)';
+}
+function onFileDrop(e){
+  e.preventDefault();
+  onDragLeave(e);
+  const file = e.dataTransfer.files[0];
+  if(file) processImportFile(file);
+}
+function onFileSelected(e){
+  const file = e.target.files[0];
+  if(file) processImportFile(file);
+}
+
+// ─── Procesamiento principal ─────────────────────────────────────────────────
+async function processImportFile(file){
+  const name = file.name.toLowerCase();
+  showImportResult('⏳ Leyendo ' + file.name + '...', 'info');
+  document.getElementById('importPreview').style.display = 'none';
+  document.getElementById('btnApplyImport').disabled = true;
+  importedPoints = [];
+
+  try {
+    if(name.endsWith('.kmz')){
+      await readKMZ(file);
+    } else if(name.endsWith('.kml')){
+      const text = await file.text();
+      importedPoints = parseKML(text);
+      finishImport(file.name);
+    } else if(name.endsWith('.geojson') || name.endsWith('.json')){
+      const text = await file.text();
+      importedPoints = parseGeoJSON(text);
+      finishImport(file.name);
+    } else {
+      showImportResult('❌ Formato no soportado. Usa .kml, .kmz o .geojson', 'err');
+    }
+  } catch(err) {
+    showImportResult('❌ Error al leer el archivo: ' + err.message, 'err');
+  }
+}
+
+// ─── Leer KMZ (ZIP con KML dentro) ──────────────────────────────────────────
+async function readKMZ(file){
+  // Leer como ArrayBuffer y descomprimir con JSZip
+  const buf = await file.arrayBuffer();
+  let zip;
+  try {
+    zip = await JSZip.loadAsync(buf);
+  } catch(e) {
+    throw new Error('No se pudo descomprimir el KMZ: ' + e.message);
+  }
+  // Buscar el primer .kml dentro del zip
+  const kmlFile = Object.values(zip.files).find(f =>
+    f.name.toLowerCase().endsWith('.kml') && !f.dir
+  );
+  if(!kmlFile) throw new Error('No se encontró ningún archivo .kml dentro del KMZ');
+  const kmlText = await kmlFile.async('string');
+  importedPoints = parseKML(kmlText);
+  finishImport(file.name + ' → ' + kmlFile.name);
+}
+
+// ─── Parser KML ─────────────────────────────────────────────────────────────
+function parseKML(text){
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(text, 'text/xml');
+
+  // Intentar extraer coordenadas de Polygon, LinearRing o LineString
+  const tags = ['Polygon', 'LinearRing', 'LineString'];
+  for(const tag of tags){
+    const els = doc.getElementsByTagNameNS('*', tag);
+    for(const el of els){
+      const coordEl = el.getElementsByTagNameNS('*', 'coordinates')[0];
+      if(!coordEl) continue;
+      const pts = parsKMLCoords(coordEl.textContent.trim());
+      if(pts.length >= 3) return pts;
+    }
+  }
+
+  // Fallback: cualquier <coordinates>
+  const coordEls = doc.getElementsByTagNameNS('*', 'coordinates');
+  for(const coordEl of coordEls){
+    const pts = parsKMLCoords(coordEl.textContent.trim());
+    if(pts.length >= 3) return pts;
+  }
+
+  throw new Error('No se encontró ningún polígono o linestring en el KML');
+}
+
+function parsKMLCoords(raw){
+  // Formato KML: lon,lat[,alt] separados por espacios o saltos de línea
+  return raw.trim().split(/\s+/)
+    .map(seg => {
+      const parts = seg.split(',');
+      if(parts.length < 2) return null;
+      const lng = parseFloat(parts[0]);
+      const lat = parseFloat(parts[1]);
+      if(isNaN(lat) || isNaN(lng)) return null;
+      return {lat, lng};
+    })
+    .filter(Boolean)
+    .filter((p,i,arr) => {
+      // Eliminar el punto de cierre si es igual al primero
+      if(i === arr.length-1 && arr.length > 1){
+        return !(Math.abs(p.lat-arr[0].lat)<1e-8 && Math.abs(p.lng-arr[0].lng)<1e-8);
+      }
+      return true;
+    });
+}
+
+// ─── Parser GeoJSON ──────────────────────────────────────────────────────────
+function parseGeoJSON(text){
+  let gj;
+  try { gj = JSON.parse(text); }
+  catch(e) { throw new Error('El archivo no es un JSON válido'); }
+
+  // Normalizar: buscar features con Polygon o MultiPolygon
+  const features = [];
+  if(gj.type === 'FeatureCollection')      features.push(...gj.features);
+  else if(gj.type === 'Feature')           features.push(gj);
+  else if(gj.type === 'Polygon' || gj.type === 'MultiPolygon' ||
+          gj.type === 'LineString' || gj.type === 'MultiLineString')
+    features.push({type:'Feature', geometry:gj});
+
+  for(const feat of features){
+    const geom = feat.geometry;
+    if(!geom) continue;
+    let ring = null;
+    if(geom.type === 'Polygon')          ring = geom.coordinates[0];
+    if(geom.type === 'MultiPolygon')     ring = geom.coordinates[0][0];
+    if(geom.type === 'LineString')       ring = geom.coordinates;
+    if(geom.type === 'MultiLineString')  ring = geom.coordinates[0];
+    if(ring && ring.length >= 3){
+      let pts = ring.map(c => ({lat: c[1], lng: c[0]}));
+      // Quitar punto de cierre si es igual al primero
+      const last = pts[pts.length-1];
+      if(pts.length > 1 && Math.abs(last.lat-pts[0].lat)<1e-8 && Math.abs(last.lng-pts[0].lng)<1e-8)
+        pts = pts.slice(0, -1);
+      if(pts.length >= 3) return pts;
+    }
+  }
+  throw new Error('No se encontró ningún polígono válido en el GeoJSON');
+}
+
+// ─── Finalizar lectura exitosa ────────────────────────────────────────────────
+function finishImport(sourceName){
+  if(importedPoints.length < 3){
+    showImportResult('❌ Se encontraron menos de 3 vértices — verifica el archivo', 'err');
+    return;
+  }
+  showImportResult(
+    `✅ <strong>${sourceName}</strong><br>` +
+    `${importedPoints.length} vértices encontrados — listos para aplicar`,
+    'ok'
+  );
+  // Mostrar preview
+  const list = document.getElementById('importPreviewList');
+  list.innerHTML = importedPoints.slice(0,8).map((p,i) =>
+    `<div style="color:var(--text2)"><span style="color:var(--acc)">${i+1}</span> &nbsp; ` +
+    `Lat: <span style="color:var(--text)">${p.lat.toFixed(6)}</span> &nbsp; ` +
+    `Lon: <span style="color:var(--text)">${p.lng.toFixed(6)}</span></div>`
+  ).join('') + (importedPoints.length > 8
+    ? `<div style="color:var(--text3)">... y ${importedPoints.length-8} vértices más</div>`
+    : '');
+  document.getElementById('importPreview').style.display = 'block';
+  document.getElementById('btnApplyImport').disabled = false;
+}
+
+function showImportResult(html, type){
+  const box = document.getElementById('importResultBox');
+  const colors = {
+    info: 'var(--text2)',
+    ok:   'var(--ok)',
+    err:  'var(--err)'
+  };
+  box.style.color = colors[type] || 'var(--text2)';
+  box.innerHTML = html;
+  document.getElementById('importResult').style.display = 'block';
+}
+
+// ─── Aplicar polígono importado ───────────────────────────────────────────────
+function applyImport(){
+  if(importedPoints.length < 3){ alert('No hay puntos válidos para aplicar.'); return; }
+
+  // Reutilizar el mismo flujo de applyModalCoords
+  const pts = [...importedPoints];
+
+  if(!gmap && !demoMode && !leafletMode){ loadDemoMode(); }
+
+  polyMarkers.forEach(m=>{if(m&&m.setMap)m.setMap(null);}); polyMarkers=[];
+  if(polyline&&polyline.setMap) polyline.setMap(null); polyline=null;
+  if(filledPoly&&filledPoly.setMap) filledPoly.setMap(null); filledPoly=null;
+  routePolylines.forEach(l=>{if(l&&l.setMap)l.setMap(null);}); routePolylines=[];
+  if(lMarkersLayer) lMarkersLayer.clearLayers();
+  if(lPolyLayer)    lPolyLayer.clearLayers();
+  if(lRouteLayer)   lRouteLayer.clearLayers();
+  polyPoints = pts;
+  drawing = false;
+
+  function finishApplyImport(){
+    if(gmap){
+      polyPoints.forEach((p,i)=>addGMapMarker(p,i+1));
+      if(filledPoly) filledPoly.setMap(null);
+      filledPoly = new google.maps.Polygon({
+        paths:polyPoints, map:gmap,
+        strokeColor:'#00e5ff', strokeWeight:2,
+        fillColor:'#00e5ff', fillOpacity:.08
+      });
+      drawGMapRoute();
+      fitPoly();
+    } else if(leafletMode){
+      polyPoints.forEach((p,i)=>addLeafletMarker(p,i+1));
+      drawLeafletPoly();
+      drawLeafletRoute();
+      fitPolyLeaflet();
+    } else if(demoMode){
+      fitPoly();
+      renderCanvas();
+    }
+    updateStats();
+    document.getElementById('btnKMZ').disabled = false;
+    document.getElementById('btnKML').disabled = false;
+    setStatus('ready', `Polígono importado — ${polyPoints.length} vértices`);
+  }
+
+  setTimeout(finishApplyImport, 80);
+  closeImportModal();
+}
+
+// ══════════════════════════════════════════════════
+// MODO C: VUELO PERIMETRAL
+// ══════════════════════════════════════════════════
+
+// Genera waypoints siguiendo el borde del polígono (con offset aplicado)
+// Soporta múltiples pasadas concéntricas hacia adentro
+function generatePerimWaypoints(){
+  if(polyPoints.length < 3) return [];
+  const vel  = +document.getElementById('velocidad').value;
+  const gimb = +document.getElementById('gimbal').value;
+  const subdivM  = +document.getElementById('max_seg_dist')?.value || 50;
+  const subdivOn = document.getElementById('subdiv_on')?.checked ?? true;
+
+  // Usar el polígono de trabajo (con offset aplicado si existe)
+  const poly = getWorkPoly();
+  const n = poly.length;
+  const wps = [];
+
+  for(let i=0; i<=n; i++){
+    const A = poly[i % n];
+    const B = poly[(i+1) % n];
+
+    // Heading hacia el siguiente vértice
+    const dLng = B.lng - A.lng;
+    const dLat = B.lat - A.lat;
+    const hdgRad = Math.atan2(dLng * Math.cos(A.lat * Math.PI/180), dLat);
+    const hdg = Math.round(((hdgRad * 180/Math.PI) + 360) % 360);
+
+    // Vértice del polígono
+    wps.push({lat:A.lat, lng:A.lng, heading:hdg, vel, gimbal:gimb, isPerimVertex:true});
+
+    // Subdividir segmento si es largo (para evitar curvas de DJI Fly)
+    if(i < n && subdivOn && subdivM > 0){
+      const segLen = haversine(A.lat, A.lng, B.lat, B.lng);
+      if(segLen > subdivM){
+        const nSeg = Math.ceil(segLen / subdivM);
+        for(let k=1; k<nSeg; k++){
+          const t = k / nSeg;
+          wps.push({
+            lat:    A.lat + t*(B.lat-A.lat),
+            lng:    A.lng + t*(B.lng-A.lng),
+            heading: hdg, vel, gimbal: gimb
+          });
+        }
+      }
+    }
+  }
+  return wps;
+}
+
+function onPerimChange(){
+  const count = generatePerimWaypoints().length;
+  const lbl = document.getElementById('perimWpCount');
+  if(lbl) lbl.textContent = count;
+  if(polyPoints.length>=3){
+    updateStats();
+    if(gmap) drawGMapRoute(); if(leafletMode) drawLeafletRoute();
+    if(demoMode) renderCanvas();
+  }
+}
+
+// ══════════════════════════════════════════════════
+// GUARDAR / CARGAR MISIÓN .AEP
+// ══════════════════════════════════════════════════
+
+// Recoge todos los parámetros de la UI en un objeto
+function collectMissionParams(){
+  const g = id => {
+    const el = document.getElementById(id);
+    if(!el) return null;
+    if(el.type === 'checkbox') return el.checked;
+    const v = parseFloat(el.value);
+    return isNaN(v) ? el.value : v;
+  };
+  return {
+    mision_nombre:  document.getElementById('mision_nombre')?.value || 'Levantamiento_01',
+    misionMode,
+    flight_dir:     document.getElementById('flight_dir')?.value || 'auto',
+    double_grid:    g('double_grid'),
+    flight_angle:   g('flight_angle'),
+    stop_and_shoot: g('stop_and_shoot'),
+    // subdivisión
+    subdiv_on:      g('subdiv_on'),
+    max_seg_dist:   g('max_seg_dist'),
+    turn_midpoint:  g('turn_midpoint'),
+    // vuelo
+    altura:         g('altura'),
+    velocidad:      g('velocidad'),
+    overlap_f:      g('overlap_f'),
+    overlap_l:      g('overlap_l'),
+    takeoff_height: g('takeoff_height'),
+    gimbal:         g('gimbal'),
+    // modo B
+    intervalo_seg:  g('intervalo_seg'),
+    // sensor
+    camara:         document.getElementById('camara')?.value || 'wide',
+    f_mm:           g('f_mm'),
+    sw_mm:          g('sw_mm'),
+    sh_mm:          g('sh_mm'),
+    res_w:          g('res_w'),
+    res_h:          g('res_h'),
+    // offset
+    poly_offset:    g('poly_offset'),
+  };
+}
+
+// Aplica un objeto de parámetros a la UI
+function applyMissionParams(p){
+  const s = (id, val) => {
+    const el = document.getElementById(id);
+    if(!el || val === null || val === undefined) return;
+    if(el.type === 'checkbox') el.checked = !!val;
+    else el.value = val;
+  };
+  s('mision_nombre',  p.mision_nombre);
+  s('flight_dir',     p.flight_dir);
+  s('flight_angle',   p.flight_angle);
+  s('stop_and_shoot', p.stop_and_shoot);
+  onFlightDirChange(); // actualiza panel manual y canvas si aplica
+  s('double_grid',    p.double_grid);
+  s('subdiv_on',      p.subdiv_on);
+  s('max_seg_dist',   p.max_seg_dist);
+  s('turn_midpoint',  p.turn_midpoint);
+  s('altura',         p.altura);
+  s('velocidad',      p.velocidad);
+  s('overlap_f',      p.overlap_f);
+  s('overlap_l',      p.overlap_l);
+  s('takeoff_height', p.takeoff_height);
+  s('gimbal',         p.gimbal);
+  s('intervalo_seg',  p.intervalo_seg);
+  s('camara',         p.camara);
+  s('f_mm',           p.f_mm);
+  s('sw_mm',          p.sw_mm);
+  s('sh_mm',          p.sh_mm);
+  s('res_w',          p.res_w);
+  s('res_h',          p.res_h);
+  s('poly_offset',    p.poly_offset ?? 0);
+  // Activar el modo de misión
+  if(p.misionMode) setMisionMode(p.misionMode);
+  // Actualizar label de subdivisión
+  const lbl = document.getElementById('subdivDistLabel');
+  if(lbl && p.max_seg_dist) lbl.textContent = p.max_seg_dist;
+  // Actualizar info del offset
+  onOffsetChange();
+}
+
+// ─── GUARDAR ────────────────────────────────────────────────────────────────
+function saveMission(){
+  if(polyPoints.length < 3){
+    alert('Define un polígono antes de guardar la misión.');
+    return;
+  }
+  const mission = {
+    format:   'AeroPlan',
+    version:  '1.0',
+    saved:    new Date().toISOString(),
+    params:   collectMissionParams(),
+    polygon:  polyPoints.map(p=>({lat:p.lat, lng:p.lng}))
+  };
+  const json = JSON.stringify(mission, null, 2);
+  const blob = new Blob([json], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (mission.params.mision_nombre || 'mision') + '.aep';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+
+  showAepStatus(`✅ Misión "${mission.params.mision_nombre}" guardada.`, 'ok');
+}
+
+// ─── CARGAR ─────────────────────────────────────────────────────────────────
+async function loadMission(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  // Resetear input para que pueda volver a abrirse el mismo archivo
+  event.target.value = '';
+
+  let mission;
+  try {
+    const text = await file.text();
+    mission = JSON.parse(text);
+  } catch(e) {
+    showAepStatus('❌ Error al leer el archivo: ' + e.message, 'err');
+    return;
+  }
+
+  // Validar formato
+  if(mission.format !== 'AeroPlan' || !mission.polygon || !mission.params){
+    showAepStatus('❌ El archivo no es un plan AeroPlan válido.', 'err');
+    return;
+  }
+  if(mission.polygon.length < 3){
+    showAepStatus('❌ El polígono del archivo tiene menos de 3 vértices.', 'err');
+    return;
+  }
+
+  // Activar modo demo si no hay mapa cargado
+  if(!gmap && !demoMode) loadDemoMode();
+
+  // Limpiar estado actual
+  polyMarkers.forEach(m=>{if(m&&m.setMap)m.setMap(null);}); polyMarkers=[];
+  if(polyline&&polyline.setMap) polyline.setMap(null); polyline=null;
+  if(filledPoly&&filledPoly.setMap) filledPoly.setMap(null); filledPoly=null;
+  routePolylines.forEach(l=>{if(l&&l.setMap)l.setMap(null);}); routePolylines=[];
+
+  // Aplicar polígono
+  polyPoints = mission.polygon.map(p=>({lat:p.lat, lng:p.lng}));
+
+  // Aplicar parámetros
+  applyMissionParams(mission.params);
+
+  // Renderizar
+  function finishLoad(){
+    if(gmap){
+      polyPoints.forEach((p,i)=>addGMapMarker(p,i+1));
+      filledPoly = new google.maps.Polygon({
+        paths:polyPoints, map:gmap,
+        strokeColor:'#00e5ff', strokeWeight:2,
+        fillColor:'#00e5ff', fillOpacity:.08
+      });
+      drawGMapRoute();
+      fitPoly();
+    } else if(leafletMode){
+      polyPoints.forEach((p,i)=>addLeafletMarker(p,i+1));
+      drawLeafletPoly();
+      drawLeafletRoute();
+      fitPolyLeaflet();
+    } else if(demoMode){
+      fitPoly();
+      renderCanvas();
+    }
+    updateStats();
+    document.getElementById('btnKMZ').disabled = false;
+    document.getElementById('btnKML').disabled = false;
+    setStatus('ready', `Misión cargada — ${polyPoints.length} vértices`);
+    const nombre = mission.params.mision_nombre || file.name;
+    showAepStatus(`✅ Misión "${nombre}" cargada (v${mission.version}, ${new Date(mission.saved).toLocaleDateString()}).`, 'ok');
+  }
+  setTimeout(finishLoad, 80);
+}
+
+function showAepStatus(html, type){
+  const el = document.getElementById('aepStatus');
+  if(!el) return;
+  const colors = {ok:'var(--ok)', err:'var(--err)', info:'var(--text2)'};
+  el.style.color = colors[type] || 'var(--text2)';
+  el.style.display = 'block';
+  el.textContent = html;
+  setTimeout(()=>{ if(el) el.style.display='none'; }, 5000);
+}
+
+// ── INIT al cargar la página ──────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // Cargar chip de cámara inicial
+  onCameraChange();
+  // Dibujar canvas de ángulo inicial
+  drawAngleCanvas();
+  // Listener toggle straight_line (nota de advertencia)
+  const slToggle = document.getElementById('straight_line');
+  const slNote   = document.getElementById('straightLineNote');
+  if(slToggle && slNote){
+    slToggle.addEventListener('change', () => {
+      slNote.style.display = slToggle.checked ? 'block' : 'none';
+    });
+  }
+  // Listener toggle stop_and_shoot (nota experimental)
+  const ssToggle = document.getElementById('stop_and_shoot');
+  const ssNote   = document.getElementById('stopShootNote');
+  if(ssToggle && ssNote){
+    ssToggle.addEventListener('change', ()=>{
+      ssNote.style.display = ssToggle.checked ? 'block' : 'none';
+    });
+  }
+});
+
+// ── Registro del Service Worker (PWA) ────────────────────────────────────────
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => console.log('SW registrado:', reg.scope))
+      .catch(err => console.warn('SW no disponible:', err));
+  });
+}
+
+</script>
+</body>
+</html>
