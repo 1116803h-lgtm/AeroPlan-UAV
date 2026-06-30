@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script>
+(function(){
+  var t = localStorage.getItem('umsnh_theme') || 'light';
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>AeroPlan — DJI Mission Planner</title>
@@ -104,8 +111,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .hdr-brand{display:flex;align-items:center;gap:10px}
 .hdr-icon{width:26px;height:26px;background:var(--acc);border-radius:4px;display:flex;align-items:center;justify-content:center}
 .hdr-icon svg{width:15px;height:15px;fill:none;stroke:#000;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
-.hdr-name{font-family:var(--cond);font-size:17px;font-weight:900;letter-spacing:.08em;color:#fff;text-transform:uppercase}
+.hdr-name{font-family:var(--cond);font-size:17px;font-weight:900;letter-spacing:.08em;color:var(--text);text-transform:uppercase}
 .hdr-sub{font-family:var(--mono);font-size:8px;color:var(--text3);letter-spacing:.15em;text-transform:uppercase;margin-top:1px}
+.theme-toggle{margin-left:auto;background:none;border:1px solid var(--border);
+  border-radius:20px;padding:4px 11px;cursor:pointer;font-size:11px;color:var(--text3);
+  display:flex;align-items:center;gap:5px;transition:all .2s;flex-shrink:0}
+.theme-toggle:hover{border-color:var(--text2);color:var(--text)}
 
 /* ─── SECTIONS ─── */
 .sec{background:var(--bg3);border:1px solid var(--border);border-radius:8px;overflow:visible;flex-shrink:0;position:relative}
@@ -207,7 +218,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 /* ─── MAP CONTROLS ─── */
 /* Leaflet tiles/panes usan z-index 200–400; controles propios deben estar sobre eso */
 .map-toolbar{position:absolute;top:14px;left:14px;z-index:1050;display:flex;flex-direction:column;gap:6px}
-.map-btn{width:36px;height:36px;background:rgba(12,15,21,.9);border:1px solid var(--border);border-radius:6px;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:13px;backdrop-filter:blur(4px)}
+.map-btn{width:36px;height:36px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;font-size:13px;backdrop-filter:blur(4px);box-shadow:0 1px 4px rgba(0,0,0,.15)}
 .map-btn:hover{border-color:var(--acc);color:var(--acc)}
 .map-btn.act{background:var(--acc-dim);border-color:var(--acc);color:var(--acc)}
 .status-bar{position:absolute;top:14px;right:14px;z-index:1050;background:rgba(7,9,13,.88);border:1px solid var(--border);border-radius:6px;padding:7px 12px;font-family:var(--mono);font-size:10px;color:var(--text2);backdrop-filter:blur(8px);display:flex;align-items:center;gap:8px}
@@ -281,6 +292,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
   background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:7px 9px}
 .mode-warn{color:var(--err);font-weight:700}
 </style>
+<style id="theme-vars">
+[data-theme="light"] {
+  --bg:#f0f4f8;--bg2:#ffffff;--bg3:#e8edf2;--bg4:#dce4ed;
+  --border:#c8d4e0;--border2:#b0c0d0;
+  --text:#1a2535;--text2:#4a6080;--text3:#7a90a8;
+  --acc:#0070e0;--acc2:#005bb5;--acc-dim:rgba(0,112,224,0.08);
+  --warn:#d97706;--ok:#16a34a;--err:#dc2626;
+}
+</style>
+
 </head>
 <body>
 <div class="app">
@@ -296,6 +317,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
         <div class="hdr-name">AeroPlan</div>
         <div class="hdr-sub">DJI Air 3S · Fotogrametría · v2</div>
       </div>
+      <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Cambiar tema">
+        <span id="themeIcon">☀️</span><span id="themeLabel">Claro</span>
+      </button>
     </div>
   </div>
 
@@ -361,10 +385,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
         <!-- SELECTOR DE MODO -->
         <div class="f"><label>Modo de misión</label>
           <div class="mode-tabs" id="modeTabs" style="grid-template-columns:1fr 1fr 1fr">
-            <button class="mode-tab act" id="modeTabA" onclick="setMisionMode('A')">
+            <button class="mode-tab" id="modeTabA" onclick="setMisionMode('A')">
               📸 Foto por WP
             </button>
-            <button class="mode-tab" id="modeTabB" onclick="setMisionMode('B')">
+            <button class="mode-tab act" id="modeTabB" onclick="setMisionMode('B')">
               🛣 Ruta + intervalo
             </button>
             <button class="mode-tab" id="modeTabC" onclick="setMisionMode('C')">
@@ -704,7 +728,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
               </div>
             </div>
             <label class="toggle" style="margin-left:12px;flex-shrink:0">
-              <input type="checkbox" id="straight_line" checked>
+              <input type="checkbox" id="straight_line">
               <span class="tslider"></span>
             </label>
           </div>
@@ -923,7 +947,7 @@ let polyPoints=[];      // [{lat,lng}]
 let polyMarkers=[];
 let polyline=null, filledPoly=null, routePolylines=[];
 let drawing=false;
-let misionMode='A';    // 'A' = foto por WP, 'B' = solo ruta + intervalo
+let misionMode='B';    // 'A' = foto por WP, 'B' = solo ruta + intervalo
 
 // Demo canvas state
 let canvas=null, ctx=null;
@@ -2478,9 +2502,9 @@ async function exportKMZ(){
     const stopAndShoot = misionMode==='A' &&
       (document.getElementById('stop_and_shoot')?.checked ?? false);
     const useStraight = document.getElementById('straight_line')?.checked ?? true;
-    const turnMode_t  = useStraight ? 'coordinateTurn' : 'toPointAndPassWithContinuityCurvature';
+    const turnMode_t  = 'toPointAndPassWithContinuityCurvature';
     // Si stop_and_shoot está activo, dampDist debe ser 0 (drone se detiene completamente)
-    const dampDist_t  = (useStraight || stopAndShoot) ? '0.2' : '0';
+    const dampDist_t  = '0';
     const straightVal = useStraight ? '1' : '0';
 
     const mCfg=`
@@ -2492,7 +2516,7 @@ async function exportKMZ(){
     <wpml:takeOffSecurityHeight>${tosh}</wpml:takeOffSecurityHeight>
     <wpml:globalTransitionalSpeed>${vel.toFixed(1)}</wpml:globalTransitionalSpeed>
     <wpml:droneInfo>
-      <wpml:droneEnumValue>0</wpml:droneEnumValue>
+      <wpml:droneEnumValue>68</wpml:droneEnumValue>
       <wpml:droneSubEnumValue>0</wpml:droneSubEnumValue>
     </wpml:droneInfo>
   </wpml:missionConfig>`;
@@ -2608,12 +2632,38 @@ async function exportKMZ(){
           </wpml:actionActuatorFuncParam>
         </wpml:action>
       </wpml:actionGroup>`;
+    // Modo A normal: gimbalEvenlyRotate + takePhoto al pasar por el WP (sin detenerse)
+    const gimbalEvenlyPhotoBlock=(w,i)=>`
+      <wpml:actionGroup>
+        <wpml:actionGroupId>${(i*2)+1}</wpml:actionGroupId>
+        <wpml:actionGroupStartIndex>${i}</wpml:actionGroupStartIndex>
+        <wpml:actionGroupEndIndex>${i}</wpml:actionGroupEndIndex>
+        <wpml:actionGroupMode>sequence</wpml:actionGroupMode>
+        <wpml:actionTrigger><wpml:actionTriggerType>reachPoint</wpml:actionTriggerType></wpml:actionTrigger>
+        <wpml:action>
+          <wpml:actionId>${(i*2)+1}</wpml:actionId>
+          <wpml:actionActuatorFunc>gimbalEvenlyRotate</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:gimbalPitchRotateAngle>${w.gimbal.toFixed(1)}</wpml:gimbalPitchRotateAngle>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+        <wpml:action>
+          <wpml:actionId>${(i*2)+2}</wpml:actionId>
+          <wpml:actionActuatorFunc>takePhoto</wpml:actionActuatorFunc>
+          <wpml:actionActuatorFuncParam>
+            <wpml:fileSuffix>wp${i}</wpml:fileSuffix>
+            <wpml:payloadPositionIndex>0</wpml:payloadPositionIndex>
+          </wpml:actionActuatorFuncParam>
+        </wpml:action>
+      </wpml:actionGroup>`;
     const accionWP=(w,i)=>{
       if(misionMode==='B')
         return i===0 ? gimbalRotateBlock(w,i) : gimbalEvenlyBlock(w,i);
       if(stopAndShoot)
         return takePhotoBlock(w,i);
-      return gimbalEvenlyBlock(w,i);
+      // Modo A normal: vuelo continuo disparando foto al pasar por cada WP
+      return gimbalEvenlyPhotoBlock(w,i);
     };
 
     // TurnMode según modo y opciones:
@@ -2622,7 +2672,7 @@ async function exportKMZ(){
     // Modo B WP0        → Stop; resto → Pass o coordinateTurn
     const turnMode=(i)=>{
       if(stopAndShoot) return 'toPointAndStopWithDiscontinuityCurvature';
-      if(useStraight)  return 'coordinateTurn';
+      
       if(misionMode==='B' && i===0) return 'toPointAndStopWithContinuityCurvature';
       return 'toPointAndPassWithContinuityCurvature';
     };
@@ -3605,6 +3655,8 @@ function showAepStatus(html, type){
 
 // ── INIT al cargar la página ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+  // Modo por defecto: B (Ruta + intervalo)
+  setMisionMode('B');
   // Cargar chip de cámara inicial
   onCameraChange();
   // Dibujar canvas de ángulo inicial
@@ -3636,6 +3688,26 @@ if('serviceWorker' in navigator){
   });
 }
 
+
+// ── theme toggle ─────────────────────────────────────────────────────────────
+function toggleTheme(){
+  const curr=document.documentElement.getAttribute('data-theme')||'light';
+  const next=curr==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('umsnh_theme',next);
+  updateThemeBtn(next);
+}
+function updateThemeBtn(t){
+  const icon=document.getElementById('themeIcon'),lbl=document.getElementById('themeLabel');
+  if(!icon||!lbl)return;
+  if(t==='dark'){icon.textContent='☀️';lbl.textContent='Claro';}
+  else          {icon.textContent='🌙';lbl.textContent='Oscuro';}
+}
+(function(){
+  const t=document.documentElement.getAttribute('data-theme')||'light';
+  if(document.readyState!=='loading')updateThemeBtn(t);
+  else document.addEventListener('DOMContentLoaded',()=>updateThemeBtn(t));
+})();
 </script>
 </body>
 </html>
